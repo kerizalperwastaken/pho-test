@@ -15,8 +15,8 @@
  * Phoenix has no guild context-menu patch API and no image section in pages, so
  * this port keeps every piece of information and the expandable friends list,
  * but presents it with `ui.openPage` / `ui.showSheet`. The guild id comes from
- * the open channel, and the only entry point is the header button — global
- * press hooks were removed because they fired on every server-profile row.
+ * the open channel. The exact `guild.menu` node is used for the context-menu
+ * entry (no broad matching), so no other rows are touched.
  */
 
 const P = phoenix;
@@ -26,6 +26,7 @@ const log = P.log;
 
 const settings = P.settings.define({
   showFriends: { type: "switch", title: "Friends in server", description: "Include friends you share the server with", default: true },
+  menuEntry: { type: "switch", title: "Guild menu entry", description: "Add Server Info to the guild context menu", default: true },
 });
 
 type Json = Record<string, any>;
@@ -198,13 +199,40 @@ function onGuild(gid: string | null | undefined): void {
   else ui.toast("Server Info: bir sunucu kanalı aç");
 }
 
-// No global press/long-press hooks: they fired on every row of the server
-// profile and turned everything into Server Info. The header button is the
-// only entry point, so nothing else in Discord is touched.
+let lastChannelId: string | null = null;
+
+// Only records the channel; never opens anything from a broad event match.
+ui.onEvent("press", (ev) => {
+  if (ev.channelId) lastChannelId = ev.channelId;
+});
+ui.onEvent("rowLongPress", (ev) => {
+  if (ev.channelId) lastChannelId = ev.channelId;
+});
+
+// The guild bar context menu has the exact accessibility id `guild.menu`.
+// Mount one row into it, mirroring the original's context-menu patch.
+const mounted = new Map<number, () => void>();
+function mountMenuRow(id: number): void {
+  if (!settings.menuEntry || mounted.has(id)) return;
+  const remover = ui.mount(id, {
+    kind: "text",
+    props: { text: "Server Info", color: 0xff5865f2, fontSize: 16, padding: [10, 14, 10, 14] },
+    onPress: () => { void guildId(lastChannelId).then(onGuild); },
+  }, { before: "start" });
+  mounted.set(id, remover);
+}
+ui.onNode("guild.menu", (node) => mountMenuRow(node.id));
+for (const id of ui.find("guild.menu")) mountMenuRow(id);
+
 ui.addHeaderButton({
   label: "Server Info",
   icon: "res://ic_mana_settings_circle",
   onPress: async (ctx) => onGuild(await guildId(ctx.channelId)),
+});
+
+phoenix.onUnload(() => {
+  for (const remove of mounted.values()) remove();
+  mounted.clear();
 });
 
 

@@ -9,7 +9,8 @@
   var discord = P.discord;
   var log = P.log;
   var settings = P.settings.define({
-    showFriends: { type: "switch", title: "Friends in server", description: "Include friends you share the server with", default: true }
+    showFriends: { type: "switch", title: "Friends in server", description: "Include friends you share the server with", default: true },
+    menuEntry: { type: "switch", title: "Guild menu entry", description: "Add Server Info to the guild context menu", default: true }
   });
   async function api(path) {
     try {
@@ -142,9 +143,34 @@
     if (gid) void show(gid);
     else ui.toast("Server Info: bir sunucu kanal\u0131 a\xE7");
   }
+  var lastChannelId = null;
+  ui.onEvent("press", (ev) => {
+    if (ev.channelId) lastChannelId = ev.channelId;
+  });
+  ui.onEvent("rowLongPress", (ev) => {
+    if (ev.channelId) lastChannelId = ev.channelId;
+  });
+  var mounted = /* @__PURE__ */ new Map();
+  function mountMenuRow(id) {
+    if (!settings.menuEntry || mounted.has(id)) return;
+    const remover = ui.mount(id, {
+      kind: "text",
+      props: { text: "Server Info", color: 4283983346, fontSize: 16, padding: [10, 14, 10, 14] },
+      onPress: () => {
+        void guildId(lastChannelId).then(onGuild);
+      }
+    }, { before: "start" });
+    mounted.set(id, remover);
+  }
+  ui.onNode("guild.menu", (node) => mountMenuRow(node.id));
+  for (const id of ui.find("guild.menu")) mountMenuRow(id);
   ui.addHeaderButton({
     label: "Server Info",
     icon: "res://ic_mana_settings_circle",
     onPress: async (ctx) => onGuild(await guildId(ctx.channelId))
+  });
+  phoenix.onUnload(() => {
+    for (const remove of mounted.values()) remove();
+    mounted.clear();
   });
 })();
