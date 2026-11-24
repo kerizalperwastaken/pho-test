@@ -4,13 +4,29 @@
 // @enabled true
 (() => {
   // guild-profiles/src/index.ts
-  var { ui, discord, stores, log } = phoenix;
+  var { ui, discord, stores, log, gateway } = phoenix;
+  var channelsByGuild = /* @__PURE__ */ new Map();
+  var channelToGuild = /* @__PURE__ */ new Map();
+  phoenix.on(gateway.guildCreate, (guild) => {
+    const set = /* @__PURE__ */ new Set();
+    for (const c of guild.channels ?? []) {
+      channelToGuild.set(c.id, guild.id);
+      set.add(c.id);
+    }
+    channelsByGuild.set(guild.id, set);
+  });
+  function guildIdForChannel(channelId) {
+    return channelId ? channelToGuild.get(channelId) : void 0;
+  }
   var settings = phoenix.settings.define({
     showRoles: { type: "switch", title: "Roles", description: "Show the server's roles", default: true },
     showFriends: { type: "switch", title: "Mutual friends", description: "Show friends in the server", default: true },
     showBlocked: { type: "switch", title: "Blocked users", description: "Show blocked users in the server", default: true },
     showFeatures: { type: "switch", title: "Features", description: "Show the server's features", default: true }
   });
+  function notify(message, title = "Guild profiles") {
+    ui.notify({ title, body: message, durationMs: 3e3 });
+  }
   async function guildRoles(guildId) {
     try {
       const rows = await stores.sql(
@@ -25,7 +41,7 @@
   }
   async function usersWithRelationship(guildId, relationship) {
     try {
-      const res = await discord.get(`/guilds/${guildId}/members`, { query: { limit: 200 } });
+      const res = await discord.get(`/guilds/${guildId}/members?limit=200`);
       if (!res.ok) return [];
       const members = res.json() ?? [];
       const table = relationship === 1 ? "relationships" : "relationships";
@@ -82,9 +98,9 @@ ${ids.map((id) => `\u2022 <@${id}>`).join("\n")}` : `No ${title.toLowerCase()} f
     label: "Guild profiles",
     icon: "res://ic_mana_puzzle_piece_plus",
     onPress: async (ctx) => {
-      const guildId = ctx.guildId;
+      const guildId = guildIdForChannel(ctx.channelId);
       if (!guildId) {
-        ui.notify("Open a server channel first");
+        notify("Open a server channel first", "Guild profiles");
         return;
       }
       const choice = await ui.choose({

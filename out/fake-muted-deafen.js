@@ -50,6 +50,9 @@
       log.warn(`Cannot reach the native Voice module: ${String(e)}`);
     }
   }
+  function notify(message, title = "Fake Mute & Deafen") {
+    ui.notify({ title, body: message, durationMs: 3e3 });
+  }
   function describe(state) {
     if (state.fakeDeafen) return "Fake deafen ON \u2014 others see you deafened";
     if (state.fakeMute) return "Fake mute ON \u2014 others see you muted";
@@ -59,7 +62,7 @@
     const current = read();
     const next = key === "fakeDeafen" ? { ...current, fakeDeafen: !current.fakeDeafen } : { fakeMute: !current.fakeMute, fakeDeafen: false };
     write(next);
-    ui.notify(describe(next));
+    notify(describe(next));
   }
   ui.addHeaderButton({
     label: "Fake mute / deafen",

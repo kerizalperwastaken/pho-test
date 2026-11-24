@@ -88,6 +88,10 @@ function publish(state: FakeState): void {
   }
 }
 
+function notify(message: string, title = "Fake Mute & Deafen"): void {
+  ui.notify({ title, body: message, durationMs: 3000 });
+}
+
 function describe(state: FakeState): string {
   if (state.fakeDeafen) return "Fake deafen ON — others see you deafened";
   if (state.fakeMute) return "Fake mute ON — others see you muted";
@@ -101,7 +105,7 @@ function toggle(key: keyof FakeState): void {
       ? { ...current, fakeDeafen: !current.fakeDeafen }
       : { fakeMute: !current.fakeMute, fakeDeafen: false };
   write(next);
-  ui.notify(describe(next));
+  notify(describe(next));
 }
 
 ui.addHeaderButton({

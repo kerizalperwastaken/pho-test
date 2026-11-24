@@ -22,7 +22,24 @@
  * Features, and the result is shown as a native text sheet.
  */
 
-const { ui, discord, stores, log } = phoenix;
+const { ui, discord, stores, log, gateway } = phoenix;
+
+/** guild_id -> set of channel ids, kept in sync from the gateway (read from the running binary). */
+const channelsByGuild = new Map<string, Set<string>>();
+const channelToGuild = new Map<string, string>();
+
+phoenix.on(gateway.guildCreate, (guild) => {
+  const set = new Set<string>();
+  for (const c of guild.channels ?? []) {
+    channelToGuild.set(c.id, guild.id);
+    set.add(c.id);
+  }
+  channelsByGuild.set(guild.id, set);
+});
+
+function guildIdForChannel(channelId: string | null): string | undefined {
+  return channelId ? channelToGuild.get(channelId) : undefined;
+}
 
 const settings = phoenix.settings.define({
   showRoles: { type: "switch", title: "Roles", description: "Show the server's roles", default: true },
@@ -30,6 +47,10 @@ const settings = phoenix.settings.define({
   showBlocked: { type: "switch", title: "Blocked users", description: "Show blocked users in the server", default: true },
   showFeatures: { type: "switch", title: "Features", description: "Show the server's features", default: true },
 });
+
+function notify(message: string, title = "Guild profiles"): void {
+  ui.notify({ title, body: message, durationMs: 3000 });
+}
 
 interface Role { id: string; name: string; color?: number; position?: number }
 interface GuildFeatureInfo { name: string; enabled: boolean }
@@ -51,7 +72,7 @@ async function guildRoles(guildId: string): Promise<Role[]> {
 /** Uses the authenticated API so blocked / relationship data is never guessed. */
 async function usersWithRelationship(guildId: string, relationship: 1 | 2): Promise<string[]> {
   try {
-    const res = await discord.get(`/guilds/${guildId}/members`, { query: { limit: 200 } } as any);
+    const res = await discord.get(`/guilds/${guildId}/members?limit=200`);
     if (!res.ok) return [];
     const members = res.json<Array<{ user?: { id?: string; username?: string } }>>() ?? [];
     // Phoenix keeps relationships in its cache; filter ids against the right type.
@@ -119,9 +140,9 @@ ui.addHeaderButton({
   label: "Guild profiles",
   icon: "res://ic_mana_puzzle_piece_plus",
   onPress: async (ctx) => {
-    const guildId = (ctx as any).guildId as string | undefined;
+    const guildId = guildIdForChannel(ctx.channelId);
     if (!guildId) {
-      ui.notify("Open a server channel first");
+      notify("Open a server channel first", "Guild profiles");
       return;
     }
     const choice = await ui.choose({
