@@ -105,6 +105,7 @@
   var pending = false;
   var busy = false;
   var queued = false;
+  var queuedGid;
   var done = /* @__PURE__ */ new Set();
   var remover = null;
   function removeMount() {
@@ -141,6 +142,7 @@
   async function refresh(gid) {
     if (busy) {
       queued = true;
+      if (gid) queuedGid = gid;
       return;
     }
     busy = true;
@@ -157,13 +159,14 @@
       if (!target) return;
       columns = await infoColumns(target);
       columnsGid = target;
-      if (target === overrideGid) overrideGid = null;
       if (pending && mountInto()) pending = false;
     } finally {
       busy = false;
       if (queued) {
         queued = false;
-        void refresh();
+        const next = queuedGid;
+        queuedGid = void 0;
+        void refresh(next);
       }
     }
   }
@@ -176,13 +179,19 @@
   });
   ui.onEvent("press", (ev) => {
     const aid = ev.accessibilityId;
-    if (aid === "guild.menu" || aid?.startsWith(CHANNEL_PREFIX)) void refresh();
+    if (aid === "guild.menu") void refresh();
+    else if (aid?.startsWith(CHANNEL_PREFIX)) {
+      overrideGid = null;
+      void refresh();
+    }
   });
   ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
     if (node.sheet == null || done.has(node.sheet)) return;
     done.add(node.sheet);
+    const gid = overrideGid;
+    overrideGid = null;
     pending = true;
-    void refresh();
+    void refresh(gid ?? void 0);
   });
   void refresh();
   phoenix.onUnload(() => {

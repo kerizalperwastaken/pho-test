@@ -140,6 +140,7 @@ let overrideAt = 0;
 let pending = false;
 let busy = false;
 let queued = false;
+let queuedGid: string | undefined;
 const done = new Set<number>();
 let remover: (() => void) | null = null;
 
@@ -180,6 +181,7 @@ function mountInto(): boolean {
 async function refresh(gid?: string): Promise<void> {
   if (busy) {
     queued = true;
+    if (gid) queuedGid = gid;
     return;
   }
   busy = true;
@@ -197,14 +199,15 @@ async function refresh(gid?: string): Promise<void> {
 
     columns = await infoColumns(target);
     columnsGid = target;
-    if (target === overrideGid) overrideGid = null;
 
     if (pending && mountInto()) pending = false;
   } finally {
     busy = false;
     if (queued) {
       queued = false;
-      void refresh();
+      const next = queuedGid;
+      queuedGid = undefined;
+      void refresh(next);
     }
   }
 }
@@ -219,16 +222,23 @@ ui.onEvent("rowLongPress", (ev) => {
 
 ui.onEvent("press", (ev) => {
   const aid = ev.accessibilityId;
-  if (aid === "guild.menu" || aid?.startsWith(CHANNEL_PREFIX)) void refresh();
+  if (aid === "guild.menu") void refresh();
+  else if (aid?.startsWith(CHANNEL_PREFIX)) {
+    overrideGid = null;
+    void refresh();
+  }
 });
 
 ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
   if (node.sheet == null || done.has(node.sheet)) return;
   done.add(node.sheet);
-  // Always re-read the guild: after switching servers the cached columns still
-  // belong to the previous one until a new request answers.
+  // A long press on another server's icon is the only time the sheet's guild
+  // differs from the open channel's. Consume that id here; the fetch started
+  // on the long press may already have finished by the time this fires.
+  const gid = overrideGid;
+  overrideGid = null;
   pending = true;
-  void refresh();
+  void refresh(gid ?? undefined);
 });
 
 void refresh();
