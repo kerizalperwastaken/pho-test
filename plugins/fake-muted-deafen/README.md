@@ -25,15 +25,15 @@ native voice surface is the `Voice` host module reached through
 `muteState` 253, `setSystemMute` 276, `setSystemInputMuted` 1472).
 
 This plugin owns the flags in storage + settings, shows toggles (header button
-menu, composer button, `/fakemute`, `/fakedeafen`), and on each change calls the
+menu and composer button), and on each change calls the
 native `Voice.op` bridge entry with `op 4` and `self_mute` / `self_deaf`.
 
 ## Device verification needed
 
 Confirm on an installed build:
 
-1. `/fakemute on` → another account sees you muted, but you can still talk.
-2. `/fakedeafen` → another account sees you deafened, but you can still hear.
+1. Header button → "Toggle fake mute" → another account sees you muted, but you can still talk.
+2. Header button → "Toggle fake deafen" → another account sees you deafened, but you can still hear.
 3. The exact bridge call may need adjusting: if `Voice.op` (254) does not accept
    an op-4 payload, inspect the module with the Phoenix schema/console and try
    the `muteState` / `setSystemMute` methods (253 / 276) instead. Update

@@ -24,7 +24,7 @@
  * See README.md for the exact native calls to confirm on a device.
  */
 
-const { ui, storage, log, commands } = phoenix;
+const { ui, storage, log } = phoenix;
 
 interface FakeState {
   fakeMute: boolean;
@@ -126,24 +126,6 @@ ui.addComposerButton({
   label: "Fake mute",
   icon: "res://ic_mana_experimental_microphone_sparkle_muted",
   onPress: () => toggle("fakeMute"),
-});
-
-commands.register({
-  name: "fakemute",
-  description: "Toggle appearing muted to others while still talking",
-  execute: (_args, ctx) => {
-    toggle("fakeMute");
-    ctx.reply(describe(read()));
-  },
-});
-
-commands.register({
-  name: "fakedeafen",
-  description: "Toggle appearing deafened to others while still hearing",
-  execute: (_args, ctx) => {
-    toggle("fakeDeafen");
-    ctx.reply(describe(read()));
-  },
 });
 
 phoenix.onUnload(() => {
