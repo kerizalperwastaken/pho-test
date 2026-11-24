@@ -139,6 +139,7 @@ let overrideGid: string | null = null;
 let overrideAt = 0;
 let pending = false;
 let busy = false;
+let queued = false;
 const done = new Set<number>();
 let remover: (() => void) | null = null;
 
@@ -177,7 +178,10 @@ function mountInto(): boolean {
 }
 
 async function refresh(gid?: string): Promise<void> {
-  if (busy) return;
+  if (busy) {
+    queued = true;
+    return;
+  }
   busy = true;
   try {
     let target: string | null = gid ?? null;
@@ -198,6 +202,10 @@ async function refresh(gid?: string): Promise<void> {
     if (pending && mountInto()) pending = false;
   } finally {
     busy = false;
+    if (queued) {
+      queued = false;
+      void refresh();
+    }
   }
 }
 
@@ -210,16 +218,17 @@ ui.onEvent("rowLongPress", (ev) => {
 });
 
 ui.onEvent("press", (ev) => {
-  if (ev.accessibilityId === "guild.menu") void refresh();
+  const aid = ev.accessibilityId;
+  if (aid === "guild.menu" || aid?.startsWith(CHANNEL_PREFIX)) void refresh();
 });
 
 ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
   if (node.sheet == null || done.has(node.sheet)) return;
   done.add(node.sheet);
-  const target = overrideGid ?? columnsGid;
-  if (target && columnsGid === target && mountInto()) return;
+  // Always re-read the guild: after switching servers the cached columns still
+  // belong to the previous one until a new request answers.
   pending = true;
-  void refresh(target ?? undefined);
+  void refresh();
 });
 
 void refresh();

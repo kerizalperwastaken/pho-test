@@ -104,6 +104,7 @@
   var overrideAt = 0;
   var pending = false;
   var busy = false;
+  var queued = false;
   var done = /* @__PURE__ */ new Set();
   var remover = null;
   function removeMount() {
@@ -138,7 +139,10 @@
     return false;
   }
   async function refresh(gid) {
-    if (busy) return;
+    if (busy) {
+      queued = true;
+      return;
+    }
     busy = true;
     try {
       let target = gid ?? null;
@@ -157,6 +161,10 @@
       if (pending && mountInto()) pending = false;
     } finally {
       busy = false;
+      if (queued) {
+        queued = false;
+        void refresh();
+      }
     }
   }
   ui.onEvent("rowLongPress", (ev) => {
@@ -167,15 +175,14 @@
     void refresh(gid);
   });
   ui.onEvent("press", (ev) => {
-    if (ev.accessibilityId === "guild.menu") void refresh();
+    const aid = ev.accessibilityId;
+    if (aid === "guild.menu" || aid?.startsWith(CHANNEL_PREFIX)) void refresh();
   });
   ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
     if (node.sheet == null || done.has(node.sheet)) return;
     done.add(node.sheet);
-    const target = overrideGid ?? columnsGid;
-    if (target && columnsGid === target && mountInto()) return;
     pending = true;
-    void refresh(target ?? void 0);
+    void refresh();
   });
   void refresh();
   phoenix.onUnload(() => {
