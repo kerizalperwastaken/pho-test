@@ -15,8 +15,8 @@
  * Phoenix has no guild context-menu patch API and no image section in pages, so
  * this port keeps every piece of information and the expandable friends list,
  * but presents it with `ui.openPage` / `ui.showSheet`. The guild id comes from
- * the open channel; a header button is the guaranteed entry point, and a
- * best-effort guild-menu row is mounted when a matching menu node appears.
+ * the open channel, and the only entry point is the header button — global
+ * press hooks were removed because they fired on every server-profile row.
  */
 
 const P = phoenix;
@@ -25,7 +25,6 @@ const discord = P.discord;
 const log = P.log;
 
 const settings = P.settings.define({
-  menuEntry: { type: "switch", title: "Guild menu entry", description: "Add Server Info to the guild context menu when possible", default: true },
   showFriends: { type: "switch", title: "Friends in server", description: "Include friends you share the server with", default: true },
 });
 
@@ -193,35 +192,19 @@ async function show(gid: string, expanded = false): Promise<void> {
   open(gid, info, expanded);
 }
 
-/** Entry point used by both the header button and the mounted guild-menu row. */
+/** Opens the page for a guild id (or tells the user to open a server channel). */
 function onGuild(gid: string | null | undefined): void {
   if (gid) void show(gid);
   else ui.toast("Server Info: bir sunucu kanalı aç");
 }
 
-let lastChannelId: string | null = null;
-const probe = P.settings.define({
-  debug: { type: "switch", title: "Log press ids", description: "Debug: log long-press accessibility ids to the JS console", default: false },
-});
-
-ui.onEvent("press", (ev) => {
-  if (ev.channelId) lastChannelId = ev.channelId;
-});
-ui.onEvent("rowLongPress", (ev) => {
-  if (ev.channelId) lastChannelId = ev.channelId;
-  if (probe.debug) log.info(`rowLongPress aid=${ev.accessibilityId} channel=${ev.channelId}`);
-  if (!settings.menuEntry) return;
-  const aid = ev.accessibilityId ?? "";
-  if (/guild|server/i.test(aid)) onGuild(lastChannelId);
-}, { intercept: false });
-
+// No global press/long-press hooks: they fired on every row of the server
+// profile and turned everything into Server Info. The header button is the
+// only entry point, so nothing else in Discord is touched.
 ui.addHeaderButton({
   label: "Server Info",
   icon: "res://ic_mana_settings_circle",
-  onPress: async (ctx) => {
-    lastChannelId = ctx.channelId;
-    onGuild(await guildId(ctx.channelId));
-  },
+  onPress: async (ctx) => onGuild(await guildId(ctx.channelId)),
 });
 
 

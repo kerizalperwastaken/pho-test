@@ -9,7 +9,6 @@
   var discord = P.discord;
   var log = P.log;
   var settings = P.settings.define({
-    menuEntry: { type: "switch", title: "Guild menu entry", description: "Add Server Info to the guild context menu when possible", default: true },
     showFriends: { type: "switch", title: "Friends in server", description: "Include friends you share the server with", default: true }
   });
   async function api(path) {
@@ -143,26 +142,9 @@
     if (gid) void show(gid);
     else ui.toast("Server Info: bir sunucu kanal\u0131 a\xE7");
   }
-  var lastChannelId = null;
-  var probe = P.settings.define({
-    debug: { type: "switch", title: "Log press ids", description: "Debug: log long-press accessibility ids to the JS console", default: false }
-  });
-  ui.onEvent("press", (ev) => {
-    if (ev.channelId) lastChannelId = ev.channelId;
-  });
-  ui.onEvent("rowLongPress", (ev) => {
-    if (ev.channelId) lastChannelId = ev.channelId;
-    if (probe.debug) log.info(`rowLongPress aid=${ev.accessibilityId} channel=${ev.channelId}`);
-    if (!settings.menuEntry) return;
-    const aid = ev.accessibilityId ?? "";
-    if (/guild|server/i.test(aid)) onGuild(lastChannelId);
-  }, { intercept: false });
   ui.addHeaderButton({
     label: "Server Info",
     icon: "res://ic_mana_settings_circle",
-    onPress: async (ctx) => {
-      lastChannelId = ctx.channelId;
-      onGuild(await guildId(ctx.channelId));
-    }
+    onPress: async (ctx) => onGuild(await guildId(ctx.channelId))
   });
 })();
