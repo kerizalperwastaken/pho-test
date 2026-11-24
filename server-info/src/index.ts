@@ -10,13 +10,13 @@
  * A two-column text block is mounted just above the "Edit Per-server Profile"
  * row: labels on the left, values on the right. It shows the server name and
  * ID, member and online counts, role and channel counts, boost level and count,
- * creation date, vanity URL and description. Nothing is added to the header, channel list,
- * composer or profiles.
+ * creation date, vanity URL and description.
  *
- * The text is fetched ahead of time so the mount can happen synchronously in
- * the node event: an async mount lands after Phoenix's last children op and
- * disappears. The guild comes from an open `navigation.channel:<id>` node,
- * which belongs to the selected guild.
+ * A long press on a server in the list opens the same sheet for a server that
+ * is not selected. The pressed row carries `navigation.server:<id>`, so that
+ * id is captured on `rowLongPress` and used for the next sheet instead of the
+ * open channel's guild. The text is fetched before mounting: a mount issued
+ * after the async fetch lands too late and is lost.
  */
 
 const ui = phoenix.ui;
@@ -29,6 +29,9 @@ type Columns = { left: string; right: string };
 const MAX_DESCRIPTION = 90;
 const DISCORD_EPOCH = 1420070400000;
 const CHANNEL_PREFIX = "navigation.channel:";
+const SERVER_PREFIX = "navigation.server:";
+const OVERRIDE_MS = 15000;
+const ANCHORS = ["Edit Per-server Profile", "Copy Server ID", "Copy Server Banner Image Link"];
 
 async function api(path: string): Promise<Json | null> {
   try {
@@ -107,61 +110,122 @@ function currentChannelId(): string | null {
   return null;
 }
 
-let columns: Columns = { left: "Server", right: "info unavailable" };
-let busy = false;
+/** Guild id of the row the user held down in the server list. */
+function pressedGid(ev: Phoenix.ViewEvent): string | null {
+  const index = (ev.payload as { index?: number } | null)?.index;
+  const list = ui.node(ev.node);
+  if (typeof index !== "number" || !list) return null;
+  const start = list.children[index];
+  if (start == null) return null;
+  const stack: number[] = [start];
+  const seen = new Set<number>();
+  while (stack.length && seen.size < 40) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = ui.node(id);
+    if (!node) continue;
+    if (node.accessibilityId?.startsWith(SERVER_PREFIX)) {
+      return node.accessibilityId.slice(SERVER_PREFIX.length);
+    }
+    for (const child of node.children ?? []) stack.push(child);
+  }
+  return null;
+}
 
-async function refresh(): Promise<void> {
+let columns: Columns = { left: "Server", right: "info unavailable" };
+let columnsGid: string | null = null;
+let overrideGid: string | null = null;
+let overrideAt = 0;
+let pending = false;
+let busy = false;
+const done = new Set<number>();
+let remover: (() => void) | null = null;
+
+function removeMount(): void {
+  if (!remover) return;
+  try {
+    remover();
+  } catch {
+    // The view may already be gone.
+  }
+  remover = null;
+}
+
+function mountInto(): boolean {
+  for (const aid of ANCHORS) {
+    const row = ui.find({ exact: aid })[0];
+    if (row == null) continue;
+    const info = ui.node(row);
+    if (!info || info.parent == null) continue;
+    removeMount();
+    remover = ui.mount(
+      info.parent,
+      {
+        kind: "view",
+        props: { direction: "row", gap: 16, padding: [12, 16, 12, 16], align: "start" },
+        children: [
+          { kind: "text", props: { text: columns.left, color: 0xff8e9297, fontSize: 13 } },
+          { kind: "text", props: { text: columns.right, color: 0xffb9bbbe, fontSize: 13 } },
+        ],
+      },
+      { before: row },
+    );
+    return true;
+  }
+  return false;
+}
+
+async function refresh(gid?: string): Promise<void> {
   if (busy) return;
   busy = true;
   try {
-    const channelId = currentChannelId();
-    if (!channelId) return;
-    const channel = await api(`/channels/${channelId}`);
-    const gid = channel?.guild_id;
-    if (gid) columns = await infoColumns(String(gid));
+    let target: string | null = gid ?? null;
+    if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
+    if (!target) {
+      const channelId = currentChannelId();
+      if (channelId) {
+        const channel = await api(`/channels/${channelId}`);
+        target = channel?.guild_id != null ? String(channel.guild_id) : null;
+      }
+    }
+    if (!target) return;
+
+    columns = await infoColumns(target);
+    columnsGid = target;
+    if (target === overrideGid) overrideGid = null;
+
+    if (pending && mountInto()) pending = false;
   } finally {
     busy = false;
   }
 }
 
-const done = new Set<number>();
-const removers: (() => void)[] = [];
+ui.onEvent("rowLongPress", (ev) => {
+  const gid = pressedGid(ev);
+  if (!gid) return;
+  overrideGid = gid;
+  overrideAt = Date.now();
+  void refresh(gid);
+});
 
-ui.onNode({ exact: "Copy Server Icon Image Link" }, (node) => {
+ui.onEvent("press", (ev) => {
+  if (ev.accessibilityId === "guild.menu") void refresh();
+});
+
+ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
   if (node.sheet == null || done.has(node.sheet)) return;
   done.add(node.sheet);
-
-  const row = ui.find({ exact: "Edit Per-server Profile" })[0];
-  if (row == null) return;
-  const info = ui.node(row);
-  if (!info || info.parent == null) return;
-
-  const remover = ui.mount(
-    info.parent,
-    {
-      kind: "view",
-      props: { direction: "row", gap: 16, padding: [12, 16, 12, 16], align: "start" },
-      children: [
-        { kind: "text", props: { text: columns.left, color: 0xff8e9297, fontSize: 13 } },
-        { kind: "text", props: { text: columns.right, color: 0xffb9bbbe, fontSize: 13 } },
-      ],
-    },
-    { before: row },
-  );
-  removers.push(remover);
-  void refresh();
+  const target = overrideGid ?? columnsGid;
+  if (target && columnsGid === target && mountInto()) return;
+  pending = true;
+  void refresh(target ?? undefined);
 });
 
 void refresh();
 
 phoenix.onUnload(() => {
-  for (const remove of removers) {
-    try {
-      remove();
-    } catch {
-      // The view may already be gone; unload must still finish.
-    }
-  }
-  removers.length = 0;
+  removeMount();
   done.clear();
+  pending = false;
 });

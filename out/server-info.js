@@ -10,6 +10,9 @@
   var MAX_DESCRIPTION = 90;
   var DISCORD_EPOCH = 14200704e5;
   var CHANNEL_PREFIX = "navigation.channel:";
+  var SERVER_PREFIX = "navigation.server:";
+  var OVERRIDE_MS = 15e3;
+  var ANCHORS = ["Edit Per-server Profile", "Copy Server ID", "Copy Server Banner Image Link"];
   async function api(path) {
     try {
       const res = await discord.get(path);
@@ -74,54 +77,110 @@
     }
     return null;
   }
+  function pressedGid(ev) {
+    const index = ev.payload?.index;
+    const list = ui.node(ev.node);
+    if (typeof index !== "number" || !list) return null;
+    const start = list.children[index];
+    if (start == null) return null;
+    const stack = [start];
+    const seen = /* @__PURE__ */ new Set();
+    while (stack.length && seen.size < 40) {
+      const id = stack.pop();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const node = ui.node(id);
+      if (!node) continue;
+      if (node.accessibilityId?.startsWith(SERVER_PREFIX)) {
+        return node.accessibilityId.slice(SERVER_PREFIX.length);
+      }
+      for (const child of node.children ?? []) stack.push(child);
+    }
+    return null;
+  }
   var columns = { left: "Server", right: "info unavailable" };
+  var columnsGid = null;
+  var overrideGid = null;
+  var overrideAt = 0;
+  var pending = false;
   var busy = false;
-  async function refresh() {
+  var done = /* @__PURE__ */ new Set();
+  var remover = null;
+  function removeMount() {
+    if (!remover) return;
+    try {
+      remover();
+    } catch {
+    }
+    remover = null;
+  }
+  function mountInto() {
+    for (const aid of ANCHORS) {
+      const row = ui.find({ exact: aid })[0];
+      if (row == null) continue;
+      const info = ui.node(row);
+      if (!info || info.parent == null) continue;
+      removeMount();
+      remover = ui.mount(
+        info.parent,
+        {
+          kind: "view",
+          props: { direction: "row", gap: 16, padding: [12, 16, 12, 16], align: "start" },
+          children: [
+            { kind: "text", props: { text: columns.left, color: 4287533719, fontSize: 13 } },
+            { kind: "text", props: { text: columns.right, color: 4290362302, fontSize: 13 } }
+          ]
+        },
+        { before: row }
+      );
+      return true;
+    }
+    return false;
+  }
+  async function refresh(gid) {
     if (busy) return;
     busy = true;
     try {
-      const channelId = currentChannelId();
-      if (!channelId) return;
-      const channel = await api(`/channels/${channelId}`);
-      const gid = channel?.guild_id;
-      if (gid) columns = await infoColumns(String(gid));
+      let target = gid ?? null;
+      if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
+      if (!target) {
+        const channelId = currentChannelId();
+        if (channelId) {
+          const channel = await api(`/channels/${channelId}`);
+          target = channel?.guild_id != null ? String(channel.guild_id) : null;
+        }
+      }
+      if (!target) return;
+      columns = await infoColumns(target);
+      columnsGid = target;
+      if (target === overrideGid) overrideGid = null;
+      if (pending && mountInto()) pending = false;
     } finally {
       busy = false;
     }
   }
-  var done = /* @__PURE__ */ new Set();
-  var removers = [];
-  ui.onNode({ exact: "Copy Server Icon Image Link" }, (node) => {
+  ui.onEvent("rowLongPress", (ev) => {
+    const gid = pressedGid(ev);
+    if (!gid) return;
+    overrideGid = gid;
+    overrideAt = Date.now();
+    void refresh(gid);
+  });
+  ui.onEvent("press", (ev) => {
+    if (ev.accessibilityId === "guild.menu") void refresh();
+  });
+  ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
     if (node.sheet == null || done.has(node.sheet)) return;
     done.add(node.sheet);
-    const row = ui.find({ exact: "Edit Per-server Profile" })[0];
-    if (row == null) return;
-    const info = ui.node(row);
-    if (!info || info.parent == null) return;
-    const remover = ui.mount(
-      info.parent,
-      {
-        kind: "view",
-        props: { direction: "row", gap: 16, padding: [12, 16, 12, 16], align: "start" },
-        children: [
-          { kind: "text", props: { text: columns.left, color: 4287533719, fontSize: 13 } },
-          { kind: "text", props: { text: columns.right, color: 4290362302, fontSize: 13 } }
-        ]
-      },
-      { before: row }
-    );
-    removers.push(remover);
-    void refresh();
+    const target = overrideGid ?? columnsGid;
+    if (target && columnsGid === target && mountInto()) return;
+    pending = true;
+    void refresh(target ?? void 0);
   });
   void refresh();
   phoenix.onUnload(() => {
-    for (const remove of removers) {
-      try {
-        remove();
-      } catch {
-      }
-    }
-    removers.length = 0;
+    removeMount();
     done.clear();
+    pending = false;
   });
 })();
