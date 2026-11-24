@@ -1,23 +1,22 @@
-// @description Guild profile extras: roles, mutual friends, blocked users and server features in one place.
-// @version 1.1.0
+// @description Guild profile sheet actions: roles, mutual friends, blocked users and server features.
+// @version 2.0.0
 // @author kerizalperwastaken
 // @enabled true
 
 /**
- * GuildProfiles for Sunbird / Phoenix.
+ * GuildProfiles — port of wingio/plugins/GuildProfiles (Aliucord) to Phoenix.
  *
- * Port of wingio/plugins GuildProfiles (Aliucord/Java) to the Phoenix TypeScript
- * runtime. The original patched `WidgetGuildProfileSheet.configureUI` and added
- * four actions to the guild's own profile sheet. Phoenix has no equivalent hook
- * point: `ui.addProfileSection` / `addProfileTab` anchor to *user* profiles, not
- * to the guild sheet. This port therefore exposes the same information through:
+ * The original patched `WidgetGuildProfileSheet.configureUI` and placed four
+ * actions in the guild profile sheet: Roles, Mutual Friends, Blocked Users and
+ * Features. Each opened a page listing guild members in that relationship, or
+ * the guild's roles/features.
  *
- *  - a "Guild" tab on user profiles (roles of that member in the open server)
- *  - a header button menu in any server channel (Roles, Mutual friends,
- *    Blocked users, Server features)
- *
- * Everything is read through `phoenix.discord` with the app's own session; no
- * guessed cache table names are involved.
+ * Phoenix exposes no named guild-sheet patch target, so this port finds the
+ * sheet through the generic view API: a press on a guild/server view arms a
+ * short window, and the first sheet created in that window gets a mounted
+ * GuildProfiles section. A catch-all node watcher does the same when a matched
+ * node appears inside a sheet. The guild id is taken from the press event's
+ * channel, then everything is read through phoenix.discord.
  */
 
 const P = phoenix;
@@ -26,110 +25,192 @@ const discord = P.discord;
 const log = P.log;
 
 const settings = P.settings.define({
-  showRoles: { type: "switch", title: "Roles", description: "Show the server's roles", default: true },
-  showFriends: { type: "switch", title: "Mutual friends", description: "Show friends in the server", default: true },
-  showBlocked: { type: "switch", title: "Blocked users", description: "Show blocked users in the server", default: true },
-  showFeatures: { type: "switch", title: "Features", description: "Show the server's features", default: true },
+  roles: { type: "switch", title: "Roles", description: "Show Roles in the guild profile sheet", default: true },
+  friends: { type: "switch", title: "Mutual friends", description: "Show Mutual friends", default: true },
+  blocked: { type: "switch", title: "Blocked users", description: "Show Blocked users", default: true },
+  features: { type: "switch", title: "Features", description: "Show server features", default: true },
+  probe: { type: "switch", title: "Log sheet node ids", description: "Debug: log accessibility ids while a sheet opens", default: false },
 });
 
-interface Role { id: string; name: string; color?: number }
-interface Response { ok: boolean; status?: number; json<T = any>(): T | null; text?(): string }
+type Json = Record<string, any>;
 
-function notify(message: string, title = "Guild profiles"): void {
-  if (typeof ui.notify === "function") ui.notify({ title, body: message, durationMs: 3500 });
-  else if (typeof ui.toast === "function") ui.toast(`${title}: ${message}`);
-  else log.info(`${title}: ${message}`);
-}
-
-async function get(path: string): Promise<Response | null> {
+async function get(path: string): Promise<Json | null> {
   try {
     const res = await discord.get(path);
-    return res && typeof (res as any).json === "function" ? (res as Response) : null;
+    return res && typeof res.json === "function" ? (res.json<Json>() ?? null) : null;
   } catch (e) {
     log.warn(`GET ${path}: ${String(e)}`);
     return null;
   }
 }
 
-/** Discord gives us guild_id for a channel; no gateway hook needed. */
-async function guildIdForChannel(channelId: string | null): Promise<string | undefined> {
+async function guildId(channelId: string | null | undefined): Promise<string | undefined> {
   if (!channelId) return undefined;
-  const res = await get(`/channels/${channelId}`);
-  return (res?.json<{ guild_id?: string }>()?.guild_id) || undefined;
+  const channel = await get(`/channels/${channelId}`);
+  return channel?.guild_id ?? undefined;
 }
 
-async function roles(guildId: string): Promise<Role[]> {
-  const res = await get(`/guilds/${guildId}/roles`);
-  const list = res?.json<Array<{ id: string; name: string; color?: number }>>();
-  return (list ?? []).map((r) => ({ id: r.id, name: r.name, color: r.color }));
+async function guildRoles(gid: string): Promise<{ id: string; name: string; color?: number }[]> {
+  const data = await get(`/guilds/${gid}/roles`);
+  const roles = (data as any)?.roles ?? data ?? [];
+  return Array.isArray(roles)
+    ? roles.map((r: Json) => ({ id: String(r.id), name: String(r.name ?? r.id), color: r.color }))
+    : [];
 }
 
-async function memberIds(guildId: string): Promise<Set<string>> {
-  const res = await get(`/guilds/${guildId}/members?limit=1000`);
-  const list = res?.json<Array<{ user?: { id?: string } }>>() ?? [];
-  return new Set(list.map((m) => m.user?.id).filter((id): id is string => !!id));
+async function memberIds(gid: string): Promise<Set<string>> {
+  const data = await get(`/guilds/${gid}/members?limit=1000`);
+  const list = Array.isArray(data) ? data : (data as any)?.members ?? [];
+  return new Set((list as Json[]).map((m) => m.user?.id).filter((id): id is string => !!id));
 }
 
-/** relationship type 1 = friend, 2 = blocked. Intersect with the guild's members. */
-async function relatedInGuild(guildId: string, type: number): Promise<string[]> {
-  const [rels, members] = await Promise.all([get("/users/@me/relationships"), memberIds(guildId)]);
-  const list = rels?.json<Array<{ id?: string; user_id?: string; type?: number }>>() ?? [];
-  const ids = list
-    .filter((r) => r.type === type)
-    .map((r) => r.id ?? r.user_id)
-    .filter((id): id is string => !!id && members.has(id));
-  return [...new Set(ids)];
+/** type 1 = friend, 2 = blocked. Intersect with the guild's member list, like the original. */
+async function relatedInGuild(gid: string, type: number): Promise<string[]> {
+  const [rels, members] = await Promise.all([get("/users/@me/relationships"), memberIds(gid)]);
+  const list = Array.isArray(rels) ? rels : (rels as any)?.relationships ?? [];
+  return [...new Set(
+    (list as Json[])
+      .filter((r) => r.type === type)
+      .map((r) => r.id ?? r.user_id ?? r.user?.id)
+      .filter((id): id is string => !!id && members.has(id))
+  )];
 }
 
-async function features(guildId: string): Promise<string[]> {
-  const res = await get(`/guilds/${guildId}`);
-  return res?.json<{ features?: string[] }>()?.features ?? [];
+async function guildFeatures(gid: string): Promise<string[]> {
+  const data = await get(`/guilds/${gid}`);
+  return Array.isArray(data?.features) ? data.features.map(String) : [];
 }
 
-function lines(title: string, items: string[]): string {
-  return items.length ? `${title} (${items.length}):\n${items.map((x) => `• ${x}`).join("\n")}` : `${title}: yok`;
+function show(title: string, lines: string[], monospace = false): void {
+  const text = lines.length ? lines.map((l) => `• ${l}`).join("\n") : "Yok";
+  ui.showSheet({ title, text, monospace });
 }
 
-// A real Guild tab on user profiles: this member's roles in the open server.
-ui.addProfileTab({
-  title: "Guild",
-  priority: 50,
-  render: async (ctx) => {
-    const userId = ctx.userId;
-    if (!userId) return [];
-    const guildId = await guildIdForChannel(ctx.channelId);
-    if (!guildId) {
-      return [{ type: "text", title: "Guild", text: "Sunucu kanalında açıldığında bu üyenin rollerini gösterir." }];
-    }
-    try {
-      const [member, allRoles] = await Promise.all([
-        get(`/guilds/${guildId}/members/${userId}`),
-        roles(guildId),
-      ]);
-      const roleIds: string[] = member?.json<{ roles?: string[] }>()?.roles ?? [];
-      const mine = allRoles.filter((r) => roleIds.includes(r.id));
-      const names = mine.length
-        ? mine.map((r) => r.name + (r.color ? ` (#${r.color.toString(16).padStart(6, "0")})` : ""))
-        : ["Rol yok"];
-      return [{ type: "text", title: "Sunucu rolleri", text: names.join("\n") }];
-    } catch (e) {
-      return [{ type: "text", title: "Guild", text: `Roller okunamadı: ${String(e)}` }];
-    }
+function openRoles(gid: string): void {
+  if (!settings.roles) return;
+  void guildRoles(gid).then((roles) =>
+    show("Roller", roles.map((r) => r.name + (r.color ? ` (#${(r.color & 0xffffff).toString(16).padStart(6, "0")})` : "")), true)
+  );
+}
+
+function openFriends(gid: string): void {
+  if (!settings.friends) return;
+  void relatedInGuild(gid, 1).then((ids) => show("Ortak arkadaşlar", ids));
+}
+
+function openBlocked(gid: string): void {
+  if (!settings.blocked) return;
+  void relatedInGuild(gid, 2).then((ids) => show("Engelli kullanıcılar", ids));
+}
+
+function openFeatures(gid: string): void {
+  if (!settings.features) return;
+  void guildFeatures(gid).then((features) => show("Sunucu özellikleri", features, true));
+}
+
+/** The mounted section, shaped like the original sheet's four action rows. */
+function menuNode(gid: string) {
+  const row = (label: string, action: () => void) => ({
+    kind: "text",
+    props: {
+      text: label,
+      color: 0xff5865f2,
+      fontSize: 16,
+      padding: [10, 14, 10, 14],
+    },
+    onPress: action,
+  });
+  const children = [
+    { kind: "text", props: { text: "GuildProfiles", color: 0xffb9bbbe, fontSize: 13, padding: [14, 14, 4, 14] } },
+    row("Roller", () => openRoles(gid)),
+    row("Ortak arkadaşlar", () => openFriends(gid)),
+    row("Engelli kullanıcılar", () => openBlocked(gid)),
+    row("Sunucu özellikleri", () => openFeatures(gid)),
+  ];
+  return { kind: "view", props: { padding: [4, 0, 8, 0] }, children };
+}
+
+// --- find the guild profile sheet -------------------------------------------------
+
+const GUILD_HINT = /guild|server|sunucu/i;
+const sheetsDone = new Set<number>();
+let armedAt = 0;
+let armedChannel: string | null = null;
+
+function sheetIds(): number[] {
+  const root = ui.root?.();
+  if (root == null) return [];
+  const found = new Set<number>();
+  const stack: number[] = [root];
+  const seen = new Set<number>();
+  while (stack.length && seen.size < 400) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const node = ui.node(id);
+    if (!node) continue;
+    if (node.sheet != null) found.add(node.sheet);
+    for (const child of node.children ?? []) stack.push(child);
+  }
+  return [...found];
+}
+
+async function attachNewSheet(): Promise<void> {
+  const ids = sheetIds();
+  const fresh = ids.filter((id) => id > 0 && !sheetsDone.has(id));
+  if (!fresh.length) return;
+  const gid = await guildId(armedChannel);
+  if (!gid) {
+    log.info("GuildProfiles: sheet open, but no guild id for the channel");
+    return;
+  }
+  for (const sheet of fresh) {
+    if (sheetsDone.has(sheet)) continue;
+    sheetsDone.add(sheet);
+    ui.mount(sheet, menuNode(gid), { before: "start" });
+    log.info(`GuildProfiles: mounted in sheet ${sheet} (guild ${gid})`);
+  }
+}
+
+// Every press on a guild/server view opens a one-shot window for the sheet.
+ui.onEvent(
+  "press",
+  (ev) => {
+    const aid = ev.accessibilityId ?? "";
+    if (!GUILD_HINT.test(aid)) return;
+    armedAt = Date.now();
+    armedChannel = ev.channelId ?? null;
+    void attachNewSheet();
   },
+  { intercept: false }
+);
+
+// Fallback: a matched node created inside any sheet arms the same window.
+ui.onNode({ prefix: "" }, (node) => {
+  if (settings.probe) log.info(`node ${node.id} aid=${node.accessibilityId} sheet=${node.sheet} kind=${node.kind}`);
+  if (node.sheet == null) return;
+  const nodeAid = node.accessibilityId ?? "";
+  if (!GUILD_HINT.test(nodeAid)) return;
+  if (Date.now() - armedAt > 3000 && !GUILD_HINT.test(nodeAid)) return;
+  armedAt = Date.now();
+  armedChannel = null;
+  void attachNewSheet();
 });
 
+// A header button remains as a guaranteed entry point when the sheet has no
+// press event with a guild/server id (Phoenix does not expose one on all builds).
 ui.addHeaderButton({
-  label: "Guild profiles",
+  label: "GuildProfiles",
   icon: "res://ic_mana_puzzle_piece_plus",
   onPress: async (ctx) => {
-    const guildId = await guildIdForChannel(ctx.channelId);
-    if (!guildId) {
-      notify("Önce bir sunucu kanalı aç");
+    const gid = await guildId(ctx.channelId);
+    if (!gid) {
+      ui.toast("GuildProfiles: bir sunucu kanalı aç");
       return;
     }
     const choice = await ui.choose({
-      title: "Guild profiles",
-      message: "Sunucu bilgilerini göster",
+      title: "GuildProfiles",
+      message: "Sunucu profili aksiyonları",
       options: [
         { label: "Roller" },
         { label: "Ortak arkadaşlar" },
@@ -137,19 +218,11 @@ ui.addHeaderButton({
         { label: "Sunucu özellikleri" },
       ],
     });
-    if (choice === 0 && settings.showRoles) {
-      const list = await roles(guildId);
-      ui.showSheet({
-        title: "Roller",
-        text: lines("Roller", list.map((r) => r.name + (r.color ? ` (#${r.color.toString(16).padStart(6, "0")})` : ""))),
-        monospace: true,
-      });
-    } else if (choice === 1 && settings.showFriends) {
-      ui.showSheet({ title: "Ortak arkadaşlar", text: lines("Ortak arkadaşlar", await relatedInGuild(guildId, 1)) });
-    } else if (choice === 2 && settings.showBlocked) {
-      ui.showSheet({ title: "Engelli kullanıcılar", text: lines("Engelli kullanıcılar", await relatedInGuild(guildId, 2)) });
-    } else if (choice === 3 && settings.showFeatures) {
-      ui.showSheet({ title: "Sunucu özellikleri", text: lines("Özellikler", await features(guildId)), monospace: true });
-    }
+    if (choice === 0) openRoles(gid);
+    else if (choice === 1) openFriends(gid);
+    else if (choice === 2) openBlocked(gid);
+    else if (choice === 3) openFeatures(gid);
   },
 });
+
+phoenix.onUnload(() => { armedAt = 0; sheetsDone.clear(); });

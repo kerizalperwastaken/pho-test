@@ -1,33 +1,37 @@
 # GuildProfiles for Sunbird / Phoenix
 
-Port of [wingio/plugins `GuildProfiles`](https://github.com/wingio/plugins/tree/main/GuildProfiles) (Aliucord/Java) to the Phoenix TypeScript plugin runtime.
+Birebir port: [wingio/plugins `GuildProfiles`](https://github.com/wingio/plugins/tree/main/GuildProfiles) (Aliucord/Java) → Phoenix TypeScript.
 
-## Nerede görünür?
+## Referans ne yapıyordu?
 
-Phoenix, Aliucord'daki `WidgetGuildProfileSheet.configureUI` hook'una karşılık gelen bir API sunmuyor. Bu yüzden plugin **sunucunun kendi profil sayfasına** buton ekleyemez. Aynı bilgiler şuradan açılır:
+`WidgetGuildProfileSheet.configureUI` method'unu patch'leyip **sunucu profili sheet'ine** dört aksiyon ekliyordu:
 
-- **Sunucu kanalındayken üst bardaki "Guild profiles" butonu** → Roller / Ortak arkadaşlar / Engelli kullanıcılar / Sunucu özellikleri
-- **Bir üyenin profili → "Guild" sekmesi** → o üyenin açık sunucudaki rolleri
+- **Roles** — sunucunun rolleri (rol rengiyle)
+- **Mutual Friends** — bu sunucuda olan arkadaşların
+- **Blocked Users** — bu sunucuda engellediğin kişiler
+- **Features** — sunucunun Discord özellikleri
 
-## Original behaviour
+Her aksiyon sonuçları listeleyen bir sayfa açıyordu.
 
-The Aliucord plugin patched the Guild Profile sheet and added four actions:
+## Phoenix portu
 
-- **Roles** — list the guild's roles, coloured by role colour
-- **Mutual friends** — guild members you are friends with
-- **Blocked users** — guild members you have blocked
-- **Features** — the guild's enabled Discord features
+Phoenix'te adlandırılmış guild-sheet patch target'ı yok. Bu yüzden plugin genel view API'sini kullanıyor:
 
-## Phoenix port
+1. `ui.onEvent("press", …)` — guild/sunucu vieweden bir basış olduğunda kısa bir pencere açılır.
+2. `ui.onNode({prefix:""})` — yeni bir sheet düğümü oluştuğunda aynı pencere tetiklenir.
+3. `ui.root()` + `ui.node(id)` — yeni açılan sheet bulunur.
+4. `ui.mount(sheet, …)` — **"GuildProfiles" bölümü doğrudan o sunucu profili sheet'ine** eklenir.
+5. `phoenix.discord.get` — `/channels/{id}`, `/guilds/{id}/roles`, `/guilds/{id}/members`, `/users/@me/relationships`, `/guilds/{id}` ile veriler okunur.
+6. `ui.showSheet` — sonuçlar gösterilir.
 
-This port uses only the public `phoenix` API:
+Sunucu kimliği, basış olayındaki `channelId`'den alınır. Header butonu, Phoenix bazı sürümlerde guild basış olayı vermediği için yedek giriş noktasıdır.
 
-- `ui.addHeaderButton` → picker with the four actions
-- `phoenix.discord.get` → `/channels/{id}` (guild id), `/guilds/{id}/roles`,
-  `/guilds/{id}/members`, `/users/@me/relationships`, `/guilds/{id}`
-- `ui.showSheet` → native sheet showing the results
-- `ui.addProfileTab` → the member's roles in the current server
+## Ayarlar
 
-Settings let you disable any of the four actions. No guessed cache tables are
-used; the earlier `stores.sql` queries were removed because their table names
-were unverified.
+Dört aksiyonun her biri açılıp kapatılabilir. **"Log sheet node ids"** ayarı, sheet açılırken tüm `accessibilityId` değerlerini JS console'a yazar.
+
+## Cihazda doğrulama
+
+1. Plugin'i kur ve bir sunucuda **sunucu adına / ikonuna bas** → sunucu profili açılırken üstte "GuildProfiles" bölümü ve dört satır görünmeli.
+2. Görünmezse "Log sheet node ids" ayarını aç, sunucu profilini yeniden aç ve JS Console çıktısını gönder. Bu log ile doğru `accessibilityId` bulunup eşleme sabitlenecek.
+3. "Roller" satırına bas → rol listesi; diğer satırlar arkadaş/engelli/özellik listelerini açmalı.
