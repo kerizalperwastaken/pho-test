@@ -24,8 +24,8 @@ Pre-built `.js` bundles are in [`out/`](out/) — download the raw files:
 
 | Plugin | Direct download |
 |--------|-----------------|
-| Fake Mute & Deafen | https://raw.githubusercontent.com/kerizalperwastaken/sunbird-plugins/main/out/fake-muted-deafen.js |
-| GuildProfiles | https://raw.githubusercontent.com/kerizalperwastaken/sunbird-plugins/main/out/guild-profiles.js |
+| Fake Mute & Deafen | https://raw.githubusercontent.com/kerizalperwastaken/pho-test/main/out/fake-muted-deafen.js |
+| GuildProfiles | https://raw.githubusercontent.com/kerizalperwastaken/pho-test/main/out/guild-profiles.js |
 
 Install them on the phone with **Discord → Settings → Phoenix → Plugins → Install from URL**
 (paste the raw link) or **Install from file** (download the `.js` first and pick it).
