@@ -6,17 +6,22 @@
 /**
  * Server Info.
  *
- * Discord's guild header opens a native bottom sheet with the server's actions.
  * A two-column text block is mounted just above the "Edit Per-server Profile"
- * row: labels on the left, values on the right. It shows the server name and
- * ID, member and online counts, role and channel counts, boost level and count,
- * creation date, vanity URL and description.
+ * row of the native guild sheet: labels left, values right. It shows the
+ * server name and ID, member and online counts, role and channel counts, boost
+ * level and count, creation date, vanity URL and description.
  *
- * A long press on a server in the list opens the same sheet for a server that
- * is not selected. The pressed row carries `navigation.server:<id>`, so that
- * id is captured on `rowLongPress` and used for the next sheet instead of the
- * open channel's guild. The text is fetched before mounting: a mount issued
- * after the async fetch lands too late and is lost.
+ * The guild is resolved from two independent signals:
+ *  - `channelInfo` (gateway) is the authoritative source for the server the
+ *    user is currently in. Reading the open channel from the view tree is not
+ *    reliable right after switching servers: several channel nodes are live
+ *    and the first one can still belong to the previous server.
+ *  - `rowLongPress` on the server list carries the row index of a server the
+ *    user held down. Its `navigation.server:<id>` child identifies the server
+ *    whose menu is about to open, even though the app has not navigated to it.
+ *
+ * Whichever signal identifies the sheet, the text is fetched before mounting:
+ * a mount issued after an async fetch lands too late when the sheet opens.
  */
 
 const ui = phoenix.ui;
@@ -102,7 +107,8 @@ async function infoColumns(gid: string): Promise<Columns> {
   };
 }
 
-function currentChannelId(): string | null {
+/** Fallback only: the view tree can hold several channels at once. */
+function channelGid(): string | null {
   for (const id of ui.find({ prefix: CHANNEL_PREFIX })) {
     const aid = ui.node(id)?.accessibilityId;
     if (aid) return aid.slice(CHANNEL_PREFIX.length);
@@ -133,16 +139,30 @@ function pressedGid(ev: Phoenix.ViewEvent): string | null {
   return null;
 }
 
+/** Live anchor rows, dropping one whose sheet was already dismissed. */
+function anchorRows(): { row: number; parent: number; sheet: number | null }[] {
+  const result: { row: number; parent: number; sheet: number | null }[] = [];
+  for (const aid of ANCHORS) {
+    for (const row of ui.find({ exact: aid })) {
+      const info = ui.node(row);
+      if (!info || info.parent == null || result.some((r) => r.row === row)) continue;
+      result.push({ row, parent: info.parent, sheet: info.sheet });
+    }
+  }
+  return result;
+}
+
 let columns: Columns = { left: "Server", right: "info unavailable" };
 let columnsGid: string | null = null;
+let currentGid: string | null = null;
 let overrideGid: string | null = null;
 let overrideAt = 0;
-let pending = false;
+let mountedGid: string | null = null;
+let remover: (() => void) | null = null;
+let needMount = false;
 let busy = false;
 let queued = false;
 let queuedGid: string | undefined;
-const done = new Set<number>();
-let remover: (() => void) | null = null;
 
 function removeMount(): void {
   if (!remover) return;
@@ -152,30 +172,31 @@ function removeMount(): void {
     // The view may already be gone.
   }
   remover = null;
+  mountedGid = null;
 }
 
 function mountInto(): boolean {
-  for (const aid of ANCHORS) {
-    const row = ui.find({ exact: aid })[0];
-    if (row == null) continue;
-    const info = ui.node(row);
-    if (!info || info.parent == null) continue;
-    removeMount();
-    remover = ui.mount(
-      info.parent,
-      {
-        kind: "view",
-        props: { direction: "row", gap: 16, padding: [12, 16, 12, 16], align: "start" },
-        children: [
-          { kind: "text", props: { text: columns.left, color: 0xff8e9297, fontSize: 13 } },
-          { kind: "text", props: { text: columns.right, color: 0xffb9bbbe, fontSize: 13 } },
-        ],
-      },
-      { before: row },
-    );
-    return true;
-  }
-  return false;
+  const rows = anchorRows();
+  if (rows.length === 0) return false;
+  // ANCHORS is ordered by preference: Edit Per-server Profile first, so the
+  // block always sits directly above that row rather than a later one.
+  const target = rows[0];
+  removeMount();
+  remover = ui.mount(
+    target.parent,
+    {
+      kind: "view",
+      props: { direction: "row", gap: 16, padding: [12, 16, 12, 16], align: "start" },
+      children: [
+        { kind: "text", props: { text: columns.left, color: 0xff8e9297, fontSize: 13 } },
+        { kind: "text", props: { text: columns.right, color: 0xffb9bbbe, fontSize: 13 } },
+      ],
+    },
+    { before: target.row },
+  );
+  mountedGid = columnsGid;
+  needMount = false;
+  return true;
 }
 
 async function refresh(gid?: string): Promise<void> {
@@ -188,11 +209,13 @@ async function refresh(gid?: string): Promise<void> {
   try {
     let target: string | null = gid ?? null;
     if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
+    if (!target) target = currentGid;
     if (!target) {
-      const channelId = currentChannelId();
+      const channelId = channelGid();
       if (channelId) {
         const channel = await api(`/channels/${channelId}`);
         target = channel?.guild_id != null ? String(channel.guild_id) : null;
+        if (target) currentGid = target;
       }
     }
     if (!target) return;
@@ -200,7 +223,10 @@ async function refresh(gid?: string): Promise<void> {
     columns = await infoColumns(target);
     columnsGid = target;
 
-    if (pending && mountInto()) pending = false;
+    // A long press can arrive while the sheet is still being built, or just
+    // after the current server was fetched. Re-mount whenever the data now
+    // belongs to a different guild than the block on screen.
+    if (anchorRows().length && (needMount || columnsGid !== mountedGid)) mountInto();
   } finally {
     busy = false;
     if (queued) {
@@ -212,32 +238,46 @@ async function refresh(gid?: string): Promise<void> {
   }
 }
 
+const channelInfo = phoenix.gateway.channelInfo;
+if (channelInfo) {
+  phoenix.on(channelInfo, (payload) => {
+    const body = payload as { guild_id?: unknown } | null;
+    const gid = body?.guild_id;
+    if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
+      currentGid = gid;
+      // Navigating to a channel means the open server changed; a previous
+      // long-press id no longer describes the menu that is opening.
+      overrideGid = null;
+      if (anchorRows().length === 0) needMount = false;
+    }
+  });
+}
+
 ui.onEvent("rowLongPress", (ev) => {
   const gid = pressedGid(ev);
   if (!gid) return;
   overrideGid = gid;
   overrideAt = Date.now();
+  needMount = true;
   void refresh(gid);
 });
 
 ui.onEvent("press", (ev) => {
-  const aid = ev.accessibilityId;
-  if (aid === "guild.menu") void refresh();
-  else if (aid?.startsWith(CHANNEL_PREFIX)) {
+  if (ev.accessibilityId === "guild.menu") {
+    // The header menu is always for the server the user is in. A stale
+    // long-press id must not leak into it.
     overrideGid = null;
+    needMount = true;
     void refresh();
   }
 });
 
 ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
-  if (node.sheet == null || done.has(node.sheet)) return;
-  done.add(node.sheet);
-  // A long press on another server's icon is the only time the sheet's guild
-  // differs from the open channel's. Consume that id here; the fetch started
-  // on the long press may already have finished by the time this fires.
+  const live = ui.node(node.id);
+  if ((live?.sheet ?? node.sheet) == null) return;
   const gid = overrideGid;
   overrideGid = null;
-  pending = true;
+  needMount = true;
   void refresh(gid ?? undefined);
 });
 
@@ -245,6 +285,5 @@ void refresh();
 
 phoenix.onUnload(() => {
   removeMount();
-  done.clear();
-  pending = false;
+  needMount = false;
 });
