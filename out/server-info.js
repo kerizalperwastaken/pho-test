@@ -144,29 +144,19 @@
     else ui.toast("Server Info: bir sunucu kanal\u0131 a\xE7");
   }
   var lastChannelId = null;
-  var menuSeen = /* @__PURE__ */ new Set();
+  var probe = P.settings.define({
+    debug: { type: "switch", title: "Log press ids", description: "Debug: log long-press accessibility ids to the JS console", default: false }
+  });
   ui.onEvent("press", (ev) => {
     if (ev.channelId) lastChannelId = ev.channelId;
   });
   ui.onEvent("rowLongPress", (ev) => {
     if (ev.channelId) lastChannelId = ev.channelId;
+    if (probe.debug) log.info(`rowLongPress aid=${ev.accessibilityId} channel=${ev.channelId}`);
     if (!settings.menuEntry) return;
     const aid = ev.accessibilityId ?? "";
     if (/guild|server/i.test(aid)) onGuild(lastChannelId);
   }, { intercept: false });
-  ui.onNode({ prefix: "" }, (node) => {
-    if (!settings.menuEntry || node.parent == null) return;
-    const aid = node.accessibilityId ?? "";
-    if (!/guild|server/i.test(aid)) return;
-    const key = `${node.parent}:${aid}`;
-    if (menuSeen.has(key)) return;
-    menuSeen.add(key);
-    ui.mount(node.parent, {
-      kind: "text",
-      props: { text: "Server Info", color: 4283983346, fontSize: 16, padding: [10, 14, 10, 14] },
-      onPress: () => onGuild(lastChannelId)
-    }, { before: node.id });
-  });
   ui.addHeaderButton({
     label: "Server Info",
     icon: "res://ic_mana_settings_circle",
@@ -174,8 +164,5 @@
       lastChannelId = ctx.channelId;
       onGuild(await guildId(ctx.channelId));
     }
-  });
-  phoenix.onUnload(() => {
-    menuSeen.clear();
   });
 })();

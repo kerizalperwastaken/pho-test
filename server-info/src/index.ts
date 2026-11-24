@@ -200,33 +200,20 @@ function onGuild(gid: string | null | undefined): void {
 }
 
 let lastChannelId: string | null = null;
-const menuSeen = new Set<string>();
+const probe = P.settings.define({
+  debug: { type: "switch", title: "Log press ids", description: "Debug: log long-press accessibility ids to the JS console", default: false },
+});
 
 ui.onEvent("press", (ev) => {
   if (ev.channelId) lastChannelId = ev.channelId;
 });
 ui.onEvent("rowLongPress", (ev) => {
   if (ev.channelId) lastChannelId = ev.channelId;
+  if (probe.debug) log.info(`rowLongPress aid=${ev.accessibilityId} channel=${ev.channelId}`);
   if (!settings.menuEntry) return;
   const aid = ev.accessibilityId ?? "";
   if (/guild|server/i.test(aid)) onGuild(lastChannelId);
 }, { intercept: false });
-
-// Best-effort: add a "Server Info" row to a guild/server menu node when one is
-// created, mirroring the original's context-menu patch.
-ui.onNode({ prefix: "" }, (node) => {
-  if (!settings.menuEntry || node.parent == null) return;
-  const aid = node.accessibilityId ?? "";
-  if (!/guild|server/i.test(aid)) return;
-  const key = `${node.parent}:${aid}`;
-  if (menuSeen.has(key)) return;
-  menuSeen.add(key);
-  ui.mount(node.parent, {
-    kind: "text",
-    props: { text: "Server Info", color: 0xff5865f2, fontSize: 16, padding: [10, 14, 10, 14] },
-    onPress: () => onGuild(lastChannelId),
-  }, { before: node.id });
-});
 
 ui.addHeaderButton({
   label: "Server Info",
@@ -237,4 +224,4 @@ ui.addHeaderButton({
   },
 });
 
-phoenix.onUnload(() => { menuSeen.clear(); });
+

@@ -155,21 +155,17 @@ function sheetIds(): number[] {
   return [...found];
 }
 
-async function attachNewSheet(): Promise<void> {
-  const ids = sheetIds();
-  const fresh = ids.filter((id) => id > 0 && !sheetsDone.has(id));
-  if (!fresh.length) return;
+async function attachNewSheet(sheet?: number): Promise<void> {
+  const target = sheet ?? sheetIds().filter((id) => id > 0 && !sheetsDone.has(id)).pop();
+  if (target == null || sheetsDone.has(target)) return;
   const gid = await guildId(armedChannel);
   if (!gid) {
     log.info("GuildProfiles: sheet open, but no guild id for the channel");
     return;
   }
-  for (const sheet of fresh) {
-    if (sheetsDone.has(sheet)) continue;
-    sheetsDone.add(sheet);
-    ui.mount(sheet, menuNode(gid), { before: "start" });
-    log.info(`GuildProfiles: mounted in sheet ${sheet} (guild ${gid})`);
-  }
+  sheetsDone.add(target);
+  ui.mount(target, menuNode(gid), { before: "start" });
+  log.info(`GuildProfiles: mounted in sheet ${target} (guild ${gid})`);
 }
 
 // Every press on a guild/server view opens a one-shot window for the sheet.
@@ -185,16 +181,13 @@ ui.onEvent(
   { intercept: false }
 );
 
-// Fallback: a matched node created inside any sheet arms the same window.
+// Only nodes created inside a freshly opened sheet are considered. We mount
+// once into the sheet itself, never into arbitrary guild-named nodes.
 ui.onNode({ prefix: "" }, (node) => {
   if (settings.probe) log.info(`node ${node.id} aid=${node.accessibilityId} sheet=${node.sheet} kind=${node.kind}`);
   if (node.sheet == null) return;
-  const nodeAid = node.accessibilityId ?? "";
-  if (!GUILD_HINT.test(nodeAid)) return;
-  if (Date.now() - armedAt > 3000 && !GUILD_HINT.test(nodeAid)) return;
-  armedAt = Date.now();
-  armedChannel = null;
-  void attachNewSheet();
+  if (Date.now() - armedAt > 3000) return;
+  void attachNewSheet(node.sheet);
 });
 
 // A header button remains as a guaranteed entry point when the sheet has no
