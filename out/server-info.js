@@ -1,4 +1,4 @@
-// @description Shows server details in the guild menu in two columns: name, ID, members, roles, channels, boosts, vanity URL and description
+// @description Shows server details in the guild menu in two columns: name, ID, owner, members, roles, channels, boosts, vanity URL
 // @version 1.0.0
 // @author kerizalperwastaken
 // @enabled true
@@ -7,7 +7,6 @@
   var ui = phoenix.ui;
   var discord = phoenix.discord;
   var log = phoenix.log;
-  var MAX_DESCRIPTION = 90;
   var DISCORD_EPOCH = 14200704e5;
   var CHANNEL_PREFIX = "navigation.channel:";
   var SERVER_PREFIX = "navigation.server:";
@@ -35,40 +34,48 @@
       return "\u2014";
     }
   }
-  function description(text) {
-    if (typeof text !== "string" || text.length === 0) return "";
-    const single = text.replace(/\s+/g, " ").trim();
-    return single.length > MAX_DESCRIPTION ? `${single.slice(0, MAX_DESCRIPTION - 1)}\u2026` : single;
-  }
   async function infoColumns(gid) {
     const guild = await api(`/guilds/${gid}?with_counts=true`);
-    if (!guild) return { left: "Server", right: "info unavailable" };
-    const [roles, channels] = await Promise.all([
-      api(`/guilds/${gid}/roles`),
-      api(`/guilds/${gid}/channels`)
-    ]);
+    if (!guild) return [[{ label: "Server", value: "info unavailable" }]];
+    const ownerId = guild.owner_id != null ? String(guild.owner_id) : null;
+    const extras = await fetchExtras(gid, ownerId);
     const tier = guild.premium_tier;
     const boosts = guild.premium_subscription_count;
     const boost = typeof boosts === "number" && boosts > 0 ? `Lv ${tier ?? 0} (${fmt(boosts)})` : `Lv ${tier ?? 0}`;
-    const rows = [
-      ["Server", String(guild.name ?? "Server")],
-      ["ID", String(guild.id ?? gid)],
-      ["Members", fmt(guild.approximate_member_count ?? guild.member_count)],
-      ["Online", fmt(guild.approximate_presence_count)],
-      ["Roles", fmt(Array.isArray(roles) ? roles.length : void 0)],
-      ["Channels", fmt(Array.isArray(channels) ? channels.length : void 0)],
-      ["Boost", boost],
-      ["Created", created(guild.id ?? gid)]
+    const cells = [
+      { label: "Server", value: String(guild.name ?? "Server") },
+      { label: "Owner", value: extras.ownerName },
+      { label: "ID", value: String(guild.id ?? gid) },
+      { label: "Members", value: fmt(guild.approximate_member_count ?? guild.member_count) },
+      { label: "Online", value: fmt(guild.approximate_presence_count) },
+      { label: "Roles", value: fmt(extras.roles) },
+      { label: "Channels", value: fmt(extras.channels) },
+      { label: "Boost", value: boost },
+      { label: "Created", value: created(guild.id ?? gid) }
     ];
     if (typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0) {
-      rows.push(["Vanity", `discord.gg/${guild.vanity_url_code}`]);
+      cells.push({ label: "Vanity", value: String(guild.vanity_url_code) });
     }
-    const desc = description(guild.description);
-    if (desc) rows.push(["About", desc]);
-    return {
-      left: rows.map(([label]) => label).join("\n"),
-      right: rows.map(([, value]) => value).join("\n")
+    const grid2 = [];
+    for (let i = 0; i < cells.length; i += 2) grid2.push(cells.slice(i, i + 2));
+    return grid2;
+  }
+  var extrasCache = /* @__PURE__ */ new Map();
+  async function fetchExtras(gid, ownerId) {
+    const cached = extrasCache.get(gid);
+    if (cached) return cached;
+    const [roles, channels, user] = await Promise.all([
+      api(`/guilds/${gid}/roles`),
+      api(`/guilds/${gid}/channels`),
+      ownerId ? api(`/users/${ownerId}`) : Promise.resolve(null)
+    ]);
+    const extras = {
+      roles: Array.isArray(roles) ? roles.length : 0,
+      channels: Array.isArray(channels) ? channels.length : 0,
+      ownerName: typeof user?.username === "string" && user.username || typeof user?.global_name === "string" && user.global_name || ownerId || "\u2014"
     };
+    extrasCache.set(gid, extras);
+    return extras;
   }
   function channelGid() {
     for (const id of ui.find({ prefix: CHANNEL_PREFIX })) {
@@ -109,7 +116,7 @@
     }
     return result;
   }
-  var columns = { left: "Server", right: "info unavailable" };
+  var grid = [[{ label: "Server", value: "info unavailable" }]];
   var columnsGid = null;
   var currentGid = null;
   var overrideGid = null;
@@ -138,11 +145,19 @@
       target.parent,
       {
         kind: "view",
-        props: { direction: "row", gap: 16, padding: [12, 16, 12, 16], align: "start" },
-        children: [
-          { kind: "text", props: { text: columns.left, color: 4287533719, fontSize: 13 } },
-          { kind: "text", props: { text: columns.right, color: 4290362302, fontSize: 13 } }
-        ]
+        props: { direction: "column", gap: 6, padding: [12, 16, 12, 16], align: "stretch", width: "fill" },
+        children: grid.map((row) => ({
+          kind: "view",
+          props: { direction: "row", gap: 16, align: "start", width: "fill" },
+          children: row.map((cell) => ({
+            kind: "view",
+            props: { direction: "row", gap: 8, flex: 1, align: "start" },
+            children: [
+              { kind: "text", props: { text: cell.label, color: 4287533719, fontSize: 13, fontWeight: 500, width: 64 } },
+              { kind: "text", props: { text: cell.value, color: 4292007128, fontSize: 13, flex: 1, width: "fill" } }
+            ]
+          }))
+        }))
       },
       { before: target.row }
     );
@@ -170,9 +185,9 @@
         }
       }
       if (!target) return;
-      columns = await infoColumns(target);
+      grid = await infoColumns(target);
       columnsGid = target;
-      if (anchorRows().length && (needMount || columnsGid !== mountedGid)) mountInto();
+      if (needMount || columnsGid !== mountedGid) mountInto();
     } finally {
       busy = false;
       if (queued) {
@@ -191,7 +206,7 @@
       if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
         currentGid = gid;
         overrideGid = null;
-        if (anchorRows().length === 0) needMount = false;
+        needMount = false;
       }
     });
   }
