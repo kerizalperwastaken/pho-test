@@ -403,8 +403,9 @@ function mountInto(): boolean {
           background: 0x0dffffff,
           radius: 10,
           clip: true,
-          // Pull into the card's own top padding.
-          margin: [0, -20, 0, 10],
+          // Pull into the card's top padding, and leave a gap before the
+          // "Edit Per-server Profile" row below.
+          margin: [0, -20, 0, 18],
         }
       : {
           direction: "column",
