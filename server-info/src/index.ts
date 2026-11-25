@@ -383,43 +383,25 @@ function mountInto(): boolean {
   if (rows.length === 0) return false;
   // ANCHOR is first: the block sits directly above that row when present.
   const target = rows[0];
-  const anchor = ui.node(target.row);
-  // A label node with several rows under it is the native card itself. Mounting
-  // inside that card skips the sheet's section gap above the card, which is what
-  // left the block floating far below the previous section.
-  const nested = (anchor?.children.length ?? 0) >= 3;
-  const parent = nested ? target.row : target.parent;
-  const before: "start" | number = nested ? "start" : target.row;
-
+  // The anchor label lives inside the native "Edit Per-server Profile" card, so
+  // mounting before it places the block at the card's top, directly above the
+  // label. Give the block its own bottom margin to match the card's top padding.
   const block: Phoenix.MountNode = {
     kind: "view",
-    props: nested
-      ? {
-          direction: "column",
-          gap: 4,
-          padding: [0, 8, 0, 8],
-          align: "stretch",
-          width: "fill",
-          background: 0x0dffffff,
-          radius: 10,
-          clip: true,
-          // Pull into the card's top padding, and leave a gap before the
-          // "Edit Per-server Profile" row below.
-          margin: [0, -20, 0, 18],
-        }
-      : {
-          direction: "column",
-          gap: 4,
-          padding: [12, 10, 12, 10],
-          align: "stretch",
-          width: "fill",
-          background: palette.bg,
-          radius: CARD_RADIUS,
-          clip: true,
-          borderColor: palette.border,
-          borderWidth: 1,
-          margin: [0, 0, 0, 0],
-        },
+    props: {
+      direction: "column",
+      gap: 4,
+      padding: [0, 10, 12, 10],
+      align: "stretch",
+      width: "fill",
+      background: palette.bg,
+      radius: CARD_RADIUS,
+      clip: true,
+      borderColor: palette.border,
+      borderWidth: 1,
+      // Native card padding above is ~16dp: mirror it below the block.
+      margin: [0, -12, 0, 16],
+    },
     children: grid.map((row) => ({
       kind: "view",
       props: { direction: "row", gap: 10, align: "start", width: "fill" },
@@ -474,7 +456,7 @@ function mountInto(): boolean {
 
   try {
     removeMount();
-    remover = ui.mount(parent, block, { before });
+    remover = ui.mount(target.parent, block, { before: target.row });
   } catch (e) {
     log.warn(`mount failed: ${String(e)}`);
     remover = null;
