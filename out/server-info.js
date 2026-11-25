@@ -313,7 +313,7 @@
           props: {
             direction: "column",
             gap: 4,
-            padding: [8, 12, 8, 12],
+            padding: [12, 10, 12, 10],
             align: "stretch",
             width: "fill",
             background: palette.bg,
@@ -321,7 +321,9 @@
             clip: true,
             borderColor: palette.border,
             borderWidth: 1,
-            margin: [16, 0, 16, 8]
+            // No margins: the parent's own gap gives equal space above and below,
+            // and the card spans the same width as the action rows.
+            margin: [0, 0, 0, 0]
           },
           children: grid.map((row) => ({
             kind: "view",
