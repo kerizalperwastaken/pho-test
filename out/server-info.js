@@ -372,7 +372,7 @@
         borderColor: palette.border,
         borderWidth: 1,
         // [left, top, right, bottom]
-        margin: [0, -12, 0, 16]
+        margin: [0, -4, 0, 16]
       },
       children: [
         {
