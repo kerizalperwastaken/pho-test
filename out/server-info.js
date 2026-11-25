@@ -321,9 +321,9 @@
             clip: true,
             borderColor: palette.border,
             borderWidth: 1,
-            // No margins: the parent's own gap gives equal space above and below,
-            // and the card spans the same width as the action rows.
-            margin: [0, 0, 0, 0]
+            // The section gap above the card is ~24dp; mirror it below so both
+            // sides match, and pull 1dp sideways to line up with the native cards.
+            margin: [-1, 0, -1, 24]
           },
           children: grid.map((row) => ({
             kind: "view",
