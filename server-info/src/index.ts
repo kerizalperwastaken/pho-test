@@ -58,16 +58,16 @@ const CACHE_MS = 10 * 60 * 1000;
 const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
 type Palette = { bg: number; border: number; label: number; value: number };
-// Colors sampled from Phoenix's own guild sheet, so the card looks native.
+// Sampled from the live guild sheet: the native cards are #414148 on #393A41.
 const DARK_PALETTE: Palette = {
-  bg: 0xff1e1f22,
-  border: 0x1f97979f, // neutral translucent border, adapts to the sheet behind it
+  bg: 0xff414148,
+  border: 0xff414148, // native cards are borderless
   label: 0xffabacb2, // muted text
-  value: 0xfffbfbfb, // primary text
+  value: 0xffffffff, // primary text
 };
 const LIGHT_PALETTE: Palette = {
   bg: 0xffffffff,
-  border: 0x1f97979f,
+  border: 0xffffffff,
   label: 0xff4e5058,
   value: 0xff313338,
 };

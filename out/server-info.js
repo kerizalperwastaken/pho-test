@@ -39,17 +39,17 @@
   var ANCHOR = "Edit Per-server Profile";
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
   var DARK_PALETTE = {
-    bg: 4280164130,
-    border: 530028447,
-    // neutral translucent border, adapts to the sheet behind it
+    bg: 4282466632,
+    border: 4282466632,
+    // native cards are borderless
     label: 4289440946,
     // muted text
-    value: 4294704123
+    value: 4294967295
     // primary text
   };
   var LIGHT_PALETTE = {
     bg: 4294967295,
-    border: 530028447,
+    border: 4294967295,
     label: 4283322456,
     value: 4281414456
   };
