@@ -10,9 +10,7 @@
  *   ui.find/node/mount, ui.onEvent/onNode, discord.get, gateway.*, onUnload.
  *
  * Differences handled here:
- *  - Anchor labels are fixed constants; the header button covers menus with different labels.
- *  - A header button + phoenix.ui.openPage fallback shows the same data even when no
- *    guild-menu anchor matches.
+ *  - Anchor labels are fixed constants; the info block is only mounted in the guild menu.
  *  - Current guild is also resolved from `ViewEvent.channelId` via /channels/{id},
  *    which is more reliable than reading the view tree. `gateway.channelInfo` is
  *    used when that event exists in the running binary.
@@ -25,12 +23,6 @@ const log = phoenix.log;
 const gateway = phoenix.gateway;
 
 const cfg = phoenix.settings.define({
-  headerFallback: {
-    type: "switch",
-    title: "Header fallback button",
-    description: "Adds a 'Server Info' chat-header button that opens the same data in a page",
-    default: true,
-  },
   server: { type: "switch", title: "Show server name", default: true },
   owner: { type: "switch", title: "Show owner", default: true },
   id: { type: "switch", title: "Show server ID", default: true },
@@ -326,29 +318,6 @@ for (const label of [ANCHOR, ...FALLBACK_ANCHORS]) {
       overrideGid = null;
       needMount = true;
       void refresh(gid ?? undefined);
-    }),
-  );
-}
-
-if (cfg.headerFallback) {
-  cleanups.push(
-    ui.addHeaderButton({
-      icon: "res://ic_mana_puzzle_piece_plus",
-      label: "Server Info",
-      onPress: (ctx) => {
-        void (async () => {
-          const gid =
-            currentGid ??
-            (await guildFromChannel(ctx.channelId)) ??
-            (overrideGid && Date.now() - overrideAt < OVERRIDE_MS ? overrideGid : null);
-          if (!gid) return ui.toast("Open a server channel first");
-          const data = await infoColumns(gid);
-          ui.openPage({
-            title: "Server Info",
-            sections: [{ type: "text", text: data.flat().map((c) => `${c.label}: ${c.value}`).join("\n") }],
-          });
-        })();
-      },
     }),
   );
 }

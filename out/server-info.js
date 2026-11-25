@@ -9,12 +9,6 @@
   var log = phoenix.log;
   var gateway = phoenix.gateway;
   var cfg = phoenix.settings.define({
-    headerFallback: {
-      type: "switch",
-      title: "Header fallback button",
-      description: "Adds a 'Server Info' chat-header button that opens the same data in a page",
-      default: true
-    },
     server: { type: "switch", title: "Show server name", default: true },
     owner: { type: "switch", title: "Show owner", default: true },
     id: { type: "switch", title: "Show server ID", default: true },
@@ -263,25 +257,6 @@
         overrideGid = null;
         needMount = true;
         void refresh(gid ?? void 0);
-      })
-    );
-  }
-  if (cfg.headerFallback) {
-    cleanups.push(
-      ui.addHeaderButton({
-        icon: "res://ic_mana_puzzle_piece_plus",
-        label: "Server Info",
-        onPress: (ctx) => {
-          void (async () => {
-            const gid = currentGid ?? await guildFromChannel(ctx.channelId) ?? (overrideGid && Date.now() - overrideAt < OVERRIDE_MS ? overrideGid : null);
-            if (!gid) return ui.toast("Open a server channel first");
-            const data = await infoColumns(gid);
-            ui.openPage({
-              title: "Server Info",
-              sections: [{ type: "text", text: data.flat().map((c) => `${c.label}: ${c.value}`).join("\n") }]
-            });
-          })();
-        }
       })
     );
   }
