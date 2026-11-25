@@ -309,7 +309,7 @@
             clip: true,
             borderColor: palette.border,
             borderWidth: 1,
-            margin: [16, 4, 16, 4]
+            margin: [16, 0, 16, 8]
           },
           children: grid.map((row) => ({
             kind: "view",
