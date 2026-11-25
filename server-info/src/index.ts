@@ -351,6 +351,7 @@ let mountedGid: string | null = null;
 let remover: (() => void) | null = null;
 let needMount = false;
 let busy = false;
+let requestSeq = 0;
 let queued: { gid?: string; channelId?: string | null } | null = null;
 const cleanups: (() => void)[] = [];
 
@@ -363,6 +364,14 @@ function removeMount(): void {
   }
   remover = null;
   mountedGid = null;
+}
+
+/** A new menu is opening: drop the old block so stale guild data is never shown. */
+function invalidateForNewMenu(): void {
+  removeMount();
+  grid = [[{ label: "Server", value: "Loading…", icon: ICON.server }]];
+  columnsGid = null;
+  needMount = true;
 }
 
 function mountInto(): boolean {
@@ -453,6 +462,7 @@ function mountInto(): boolean {
 }
 
 async function refresh(gid?: string, channelId?: string | null): Promise<void> {
+  const seq = ++requestSeq;
   if (busy) {
     // Last request wins: no stale queuedGid leaking into the next open.
     queued = { gid, channelId };
@@ -467,7 +477,10 @@ async function refresh(gid?: string, channelId?: string | null): Promise<void> {
     if (!target) target = await guildFromChannel(channelId ?? channelGid());
     if (!target) return;
 
-    grid = await infoColumns(target);
+    const fresh = await infoColumns(target);
+    // A newer menu request won while this one was fetching: discard the old data.
+    if (seq !== requestSeq) return;
+    grid = fresh;
     columnsGid = target;
 
     // Re-mount when the data now belongs to a different guild than the block on screen.
@@ -489,7 +502,8 @@ if (channelInfo) {
       currentGid = gid;
       // Navigating to a channel means the open server changed; a previous long-press id is stale.
       overrideGid = null;
-      needMount = false;
+      needMount = true;
+      void refresh();
     }
   });
 }
@@ -506,9 +520,9 @@ cleanups.push(
   ui.onEvent("rowLongPress", (ev) => {
     const gid = pressedGid(ev);
     if (gid) {
+      invalidateForNewMenu();
       overrideGid = gid;
       overrideAt = Date.now();
-      needMount = true;
     }
     void refresh(gid ?? undefined, ev.channelId);
   }),
@@ -517,9 +531,11 @@ cleanups.push(
 cleanups.push(
   ui.onEvent("press", (ev) => {
     if (ev.accessibilityId === "guild.menu") {
-      // The header menu is always for the server the user is in.
+      // The header menu is always for the server the user is in; never reuse a
+      // guild resolved for a different menu.
+      invalidateForNewMenu();
       overrideGid = null;
-      needMount = true;
+      currentGid = null;
       void refresh(undefined, ev.channelId);
     }
   }),
@@ -530,9 +546,9 @@ for (const label of [ANCHOR, ...FALLBACK_ANCHORS]) {
     ui.onNode({ exact: label }, (node) => {
       const live = ui.node(node.id);
       if ((live?.sheet ?? node.sheet) == null) return;
+      invalidateForNewMenu();
       const gid = overrideGid;
       overrideGid = null;
-      needMount = true;
       void refresh(gid ?? undefined);
     }),
   );

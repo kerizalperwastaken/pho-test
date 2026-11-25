@@ -277,6 +277,7 @@
   var remover = null;
   var needMount = false;
   var busy = false;
+  var requestSeq = 0;
   var queued = null;
   var cleanups = [];
   function removeMount() {
@@ -287,6 +288,12 @@
     }
     remover = null;
     mountedGid = null;
+  }
+  function invalidateForNewMenu() {
+    removeMount();
+    grid = [[{ label: "Server", value: "Loading\u2026", icon: ICON.server }]];
+    columnsGid = null;
+    needMount = true;
   }
   function mountInto() {
     const rows = anchorRows();
@@ -372,6 +379,7 @@
     return true;
   }
   async function refresh(gid, channelId) {
+    const seq = ++requestSeq;
     if (busy) {
       queued = { gid, channelId };
       return;
@@ -384,7 +392,9 @@
       if (!target) target = currentGid;
       if (!target) target = await guildFromChannel(channelId ?? channelGid());
       if (!target) return;
-      grid = await infoColumns(target);
+      const fresh = await infoColumns(target);
+      if (seq !== requestSeq) return;
+      grid = fresh;
       columnsGid = target;
       if (needMount || columnsGid !== mountedGid) mountInto();
     } finally {
@@ -402,7 +412,8 @@
       if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
         currentGid = gid;
         overrideGid = null;
-        needMount = false;
+        needMount = true;
+        void refresh();
       }
     });
   }
@@ -417,9 +428,9 @@
     ui.onEvent("rowLongPress", (ev) => {
       const gid = pressedGid(ev);
       if (gid) {
+        invalidateForNewMenu();
         overrideGid = gid;
         overrideAt = Date.now();
-        needMount = true;
       }
       void refresh(gid ?? void 0, ev.channelId);
     })
@@ -427,8 +438,9 @@
   cleanups.push(
     ui.onEvent("press", (ev) => {
       if (ev.accessibilityId === "guild.menu") {
+        invalidateForNewMenu();
         overrideGid = null;
-        needMount = true;
+        currentGid = null;
         void refresh(void 0, ev.channelId);
       }
     })
@@ -438,9 +450,9 @@
       ui.onNode({ exact: label }, (node) => {
         const live = ui.node(node.id);
         if ((live?.sheet ?? node.sheet) == null) return;
+        invalidateForNewMenu();
         const gid = overrideGid;
         overrideGid = null;
-        needMount = true;
         void refresh(gid ?? void 0);
       })
     );
