@@ -92,32 +92,34 @@
     const extras = needExtras ? await fetchExtras(gid, ownerId) : { roles: 0, channels: 0, ownerName: "\u2014" };
     const tier = guild.premium_tier;
     const boosts = guild.premium_subscription_count;
-    const boost = typeof boosts === "number" && boosts > 0 ? `Lv ${tier ?? 0} (${fmt(boosts)})` : `Lv ${tier ?? 0}`;
-    const cells = [];
-    if (cfg.server) cells.push({ label: "Server", value: String(guild.name ?? "Server"), icon: ICON.server });
-    if (cfg.owner) cells.push({ label: "Owner", value: extras.ownerName, icon: ICON.owner });
-    if (cfg.id) cells.push({ label: "ID", value: String(guild.id ?? gid), icon: ICON.id });
-    if (cfg.members) {
-      cells.push({
-        label: "Members",
-        value: fmt(guild.approximate_member_count ?? guild.member_count),
-        icon: ICON.members
-      });
-      cells.push({ label: "Online", value: fmt(guild.approximate_presence_count), icon: ICON.online });
-    }
-    if (cfg.roles) cells.push({ label: "Roles", value: fmt(extras.roles), icon: ICON.roles });
-    if (cfg.channels) cells.push({ label: "Channels", value: fmt(extras.channels), icon: ICON.channels });
-    if (cfg.boost) {
-      const level = Math.min(2, Math.max(0, Number(tier ?? 0) - 1));
-      cells.push({ label: "Boost", value: boost, icon: ICON.boost[level] });
-    }
-    if (cfg.created) cells.push({ label: "Created", value: created(guild.id ?? gid), icon: ICON.created });
-    if (cfg.vanity && typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0) {
-      cells.push({ label: "Vanity", value: String(guild.vanity_url_code), icon: ICON.vanity });
-    }
-    if (cells.length === 0) cells.push({ label: "Server", value: "no fields enabled", icon: ICON.server });
+    const boost = typeof boosts === "number" && boosts > 0 ? `${fmt(boosts)} boosts \xB7 Lv ${tier ?? 0}` : `Lv ${tier ?? 0}`;
+    const boostLevel = Math.min(2, Math.max(0, Number(tier ?? 0) - 1));
+    const vanity = cfg.vanity && typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0 ? String(guild.vanity_url_code) : null;
+    const cell = (label, value, icon) => ({ label, value, icon });
     const grid2 = [];
-    for (let i = 0; i < cells.length; i += 2) grid2.push(cells.slice(i, i + 2));
+    const row = (...parts) => {
+      const present = parts.filter((c) => c != null);
+      if (present.length) grid2.push(present);
+    };
+    row(
+      cfg.server ? cell("Server", String(guild.name ?? "Server"), ICON.server) : null,
+      cfg.owner ? cell("Owner", extras.ownerName, ICON.owner) : null
+    );
+    row(cfg.id ? cell("ID", String(guild.id ?? gid), ICON.id) : null);
+    row(cfg.created ? cell("Created", created(guild.id ?? gid), ICON.created) : null);
+    row(
+      cfg.members ? cell("Members", fmt(guild.approximate_member_count ?? guild.member_count), ICON.members) : null,
+      cfg.members ? cell("Online", fmt(guild.approximate_presence_count), ICON.online) : null
+    );
+    row(
+      cfg.channels ? cell("Channels", fmt(extras.channels), ICON.channels) : null,
+      cfg.roles ? cell("Roles", fmt(extras.roles), ICON.roles) : null
+    );
+    row(
+      cfg.boost ? cell("Boost", boost, ICON.boost[boostLevel]) : null,
+      vanity ? cell("Vanity", vanity, ICON.vanity) : null
+    );
+    if (grid2.length === 0) grid2.push([cell("Server", "no fields enabled", ICON.server)]);
     return grid2;
   }
   function channelGid() {
