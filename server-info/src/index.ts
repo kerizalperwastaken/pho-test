@@ -1,32 +1,53 @@
-// @description Shows server details in the guild menu in two columns: name, ID, owner, members, roles, channels, boosts, vanity URL
-// @version 1.0.0
+// @description Shows server details in the guild menu: name, ID, owner, members, roles, channels, boosts, created, vanity
+// @version 1.1.0
 // @author kerizalperwastaken
 // @enabled true
 
 /**
- * Server Info.
+ * Sunbird (Phoenix Unlocker) port of server-info.
  *
- * A two-column text block is mounted just above the "Edit Per-server Profile"
- * row of the native guild sheet: labels left, values right. It shows the
- * server name and ID, member and online counts, role and channel counts, boost
- * level and count, creation date and vanity URL.
+ * Sunbird's `phoenix` API already provides everything the original plugin used:
+ *   ui.find/node/mount, ui.onEvent/onNode, discord.get, gateway.*, onUnload.
  *
- * The guild is resolved from two independent signals:
- *  - `channelInfo` (gateway) is the authoritative source for the server the
- *    user is currently in. Reading the open channel from the view tree is not
- *    reliable right after switching servers: several channel nodes are live
- *    and the first one can still belong to the previous server.
- *  - `rowLongPress` on the server list carries the row index of a server the
- *    user held down. Its `navigation.server:<id>` child identifies the server
- *    whose menu is about to open, even though the app has not navigated to it.
- *
- * Whichever signal identifies the sheet, the text is fetched before mounting:
- * a mount issued after an async fetch lands too late when the sheet opens.
+ * Differences handled here:
+ *  - Anchor labels are configurable (Settings -> Phoenix -> server-info), because the
+ *    original English strings may differ on Phoenix versionCode 356207 / other locales.
+ *  - A header button + phoenix.ui.openPage fallback shows the same data even when no
+ *    guild-menu anchor matches.
+ *  - Current guild is also resolved from `ViewEvent.channelId` via /channels/{id},
+ *    which is more reliable than reading the view tree. `gateway.channelInfo` is
+ *    used when that event exists in the running binary.
+ *  - All event listeners are removed on unload, mount is guarded, queue/caching fixed.
  */
 
 const ui = phoenix.ui;
 const discord = phoenix.discord;
 const log = phoenix.log;
+const gateway = phoenix.gateway;
+
+const cfg = phoenix.settings.define({
+  anchor: {
+    type: "text",
+    title: "Guild menu anchor",
+    description: "Accessibility label of a row in the guild menu. The block is mounted above it. Change if nothing appears.",
+    default: "Edit Per-server Profile",
+  },
+  headerFallback: {
+    type: "switch",
+    title: "Header fallback button",
+    description: "Adds a 'Server Info' chat-header button that opens the same data in a page",
+    default: true,
+  },
+  server: { type: "switch", title: "Show server name", default: true },
+  owner: { type: "switch", title: "Show owner", default: true },
+  id: { type: "switch", title: "Show server ID", default: true },
+  members: { type: "switch", title: "Show members / online", default: true },
+  roles: { type: "switch", title: "Show role count", default: true },
+  channels: { type: "switch", title: "Show channel count", default: true },
+  boost: { type: "switch", title: "Show boost level", default: true },
+  created: { type: "switch", title: "Show creation date", default: true },
+  vanity: { type: "switch", title: "Show vanity URL", default: true },
+});
 
 type Json = Record<string, any>;
 type Cell = { label: string; value: string };
@@ -36,7 +57,8 @@ const DISCORD_EPOCH = 1420070400000;
 const CHANNEL_PREFIX = "navigation.channel:";
 const SERVER_PREFIX = "navigation.server:";
 const OVERRIDE_MS = 15000;
-const ANCHORS = ["Edit Per-server Profile", "Copy Server ID", "Copy Server Banner Image Link"];
+const CACHE_MS = 10 * 60 * 1000;
+const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
 
 async function api(path: string): Promise<Json | null> {
   try {
@@ -52,7 +74,7 @@ function fmt(n: unknown): string {
   return typeof n === "number" ? n.toLocaleString() : "—";
 }
 
-/** Discord does not return `created_at`; the timestamp lives in the snowflake id. */
+/** Discord does not return created_at; the timestamp lives in the snowflake id. */
 function created(id: unknown): string {
   if (typeof id !== "string" || !/^\d{17,19}$/.test(id)) return "—";
   try {
@@ -64,52 +86,18 @@ function created(id: unknown): string {
   }
 }
 
-async function infoColumns(gid: string): Promise<Grid> {
-  const guild = await api(`/guilds/${gid}?with_counts=true`);
-  if (!guild) return [[{ label: "Server", value: "info unavailable" }]];
-
-  const ownerId = guild.owner_id != null ? String(guild.owner_id) : null;
-  const extras = await fetchExtras(gid, ownerId);
-
-  const tier = guild.premium_tier;
-  const boosts = guild.premium_subscription_count;
-  const boost = typeof boosts === "number" && boosts > 0 ? `Lv ${tier ?? 0} (${fmt(boosts)})` : `Lv ${tier ?? 0}`;
-
-  const cells: Cell[] = [
-    { label: "Server", value: String(guild.name ?? "Server") },
-    { label: "Owner", value: extras.ownerName },
-    { label: "ID", value: String(guild.id ?? gid) },
-    { label: "Members", value: fmt(guild.approximate_member_count ?? guild.member_count) },
-    { label: "Online", value: fmt(guild.approximate_presence_count) },
-    { label: "Roles", value: fmt(extras.roles) },
-    { label: "Channels", value: fmt(extras.channels) },
-    { label: "Boost", value: boost },
-    { label: "Created", value: created(guild.id ?? gid) },
-  ];
-
-  if (typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0) {
-    cells.push({ label: "Vanity", value: String(guild.vanity_url_code) });
-  }
-
-  // Pair cells into visual rows: Server / Owner, ID / Members, Online / Roles, ...
-  const grid: Grid = [];
-  for (let i = 0; i < cells.length; i += 2) grid.push(cells.slice(i, i + 2));
-  return grid;
-}
-
-/** Roles, channels and the owner's username are stable per guild: fetch once. */
 type Extras = { roles: number; channels: number; ownerName: string };
-const extrasCache = new Map<string, Extras>();
+const extrasCache = new Map<string, { at: number; data: Extras }>();
 
 async function fetchExtras(gid: string, ownerId: string | null): Promise<Extras> {
   const cached = extrasCache.get(gid);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.data;
   const [roles, channels, user] = await Promise.all([
     api(`/guilds/${gid}/roles`),
     api(`/guilds/${gid}/channels`),
     ownerId ? api(`/users/${ownerId}`) : Promise.resolve(null),
   ]);
-  const extras: Extras = {
+  const data: Extras = {
     roles: Array.isArray(roles) ? roles.length : 0,
     channels: Array.isArray(channels) ? channels.length : 0,
     ownerName:
@@ -118,8 +106,44 @@ async function fetchExtras(gid: string, ownerId: string | null): Promise<Extras>
       ownerId ||
       "—",
   };
-  extrasCache.set(gid, extras);
-  return extras;
+  extrasCache.set(gid, { at: Date.now(), data });
+  return data;
+}
+
+async function infoColumns(gid: string): Promise<Grid> {
+  const guild = await api(`/guilds/${gid}?with_counts=true`);
+  if (!guild) return [[{ label: "Server", value: "info unavailable" }]];
+
+  const ownerId = guild.owner_id != null ? String(guild.owner_id) : null;
+  const needExtras = cfg.owner || cfg.roles || cfg.channels;
+  const extras: Extras = needExtras
+    ? await fetchExtras(gid, ownerId)
+    : { roles: 0, channels: 0, ownerName: "—" };
+
+  const tier = guild.premium_tier;
+  const boosts = guild.premium_subscription_count;
+  const boost = typeof boosts === "number" && boosts > 0 ? `Lv ${tier ?? 0} (${fmt(boosts)})` : `Lv ${tier ?? 0}`;
+
+  const cells: Cell[] = [];
+  if (cfg.server) cells.push({ label: "Server", value: String(guild.name ?? "Server") });
+  if (cfg.owner) cells.push({ label: "Owner", value: extras.ownerName });
+  if (cfg.id) cells.push({ label: "ID", value: String(guild.id ?? gid) });
+  if (cfg.members) {
+    cells.push({ label: "Members", value: fmt(guild.approximate_member_count ?? guild.member_count) });
+    cells.push({ label: "Online", value: fmt(guild.approximate_presence_count) });
+  }
+  if (cfg.roles) cells.push({ label: "Roles", value: fmt(extras.roles) });
+  if (cfg.channels) cells.push({ label: "Channels", value: fmt(extras.channels) });
+  if (cfg.boost) cells.push({ label: "Boost", value: boost });
+  if (cfg.created) cells.push({ label: "Created", value: created(guild.id ?? gid) });
+  if (cfg.vanity && typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0) {
+    cells.push({ label: "Vanity", value: String(guild.vanity_url_code) });
+  }
+  if (cells.length === 0) cells.push({ label: "Server", value: "no fields enabled" });
+
+  const grid: Grid = [];
+  for (let i = 0; i < cells.length; i += 2) grid.push(cells.slice(i, i + 2));
+  return grid;
 }
 
 /** Fallback only: the view tree can hold several channels at once. */
@@ -154,14 +178,24 @@ function pressedGid(ev: Phoenix.ViewEvent): string | null {
   return null;
 }
 
+/** Sunbird gives ViewEvent.channelId on many events; resolve it through the API. */
+async function guildFromChannel(channelId?: string | null): Promise<string | null> {
+  if (!channelId) return null;
+  const channel = await api(`/channels/${channelId}`);
+  return channel?.guild_id != null ? String(channel.guild_id) : null;
+}
+
 /** Live anchor rows, dropping one whose sheet was already dismissed. */
-function anchorRows(): { row: number; parent: number; sheet: number | null }[] {
-  const result: { row: number; parent: number; sheet: number | null }[] = [];
-  for (const aid of ANCHORS) {
+function anchorRows(): { row: number; parent: number }[] {
+  const labels = [cfg.anchor, ...FALLBACK_ANCHORS].filter(
+    (s): s is string => typeof s === "string" && s.length > 0,
+  );
+  const result: { row: number; parent: number }[] = [];
+  for (const aid of labels) {
     for (const row of ui.find({ exact: aid })) {
       const info = ui.node(row);
       if (!info || info.parent == null || result.some((r) => r.row === row)) continue;
-      result.push({ row, parent: info.parent, sheet: info.sheet });
+      result.push({ row, parent: info.parent });
     }
   }
   return result;
@@ -176,8 +210,8 @@ let mountedGid: string | null = null;
 let remover: (() => void) | null = null;
 let needMount = false;
 let busy = false;
-let queued = false;
-let queuedGid: string | undefined;
+let queued: { gid?: string; channelId?: string | null } | null = null;
+const cleanups: (() => void)[] = [];
 
 function removeMount(): void {
   if (!remover) return;
@@ -193,39 +227,44 @@ function removeMount(): void {
 function mountInto(): boolean {
   const rows = anchorRows();
   if (rows.length === 0) return false;
-  // ANCHORS is ordered by preference: Edit Per-server Profile first, so the
-  // block always sits directly above that row rather than a later one.
+  // cfg.anchor is first: the block sits directly above that row when present.
   const target = rows[0];
-  removeMount();
-  remover = ui.mount(
-    target.parent,
-    {
-      kind: "view",
-      props: { direction: "column", gap: 6, padding: [12, 16, 12, 16], align: "stretch", width: "fill" },
-      children: grid.map((row) => ({
+  try {
+    removeMount();
+    remover = ui.mount(
+      target.parent,
+      {
         kind: "view",
-        props: { direction: "row", gap: 16, align: "start", width: "fill" },
-        children: row.map((cell) => ({
+        props: { direction: "column", gap: 6, padding: [12, 16, 12, 16], align: "stretch", width: "fill" },
+        children: grid.map((row) => ({
           kind: "view",
-          props: { direction: "row", gap: 8, flex: 1, align: "start" },
-          children: [
-            { kind: "text", props: { text: cell.label, color: 0xff8e9297, fontSize: 13, fontWeight: 500, width: 64 } },
-            { kind: "text", props: { text: cell.value, color: 0xffd2d4d8, fontSize: 13, flex: 1, width: "fill" } },
-          ],
+          props: { direction: "row", gap: 16, align: "start", width: "fill" },
+          children: row.map((cell) => ({
+            kind: "view",
+            props: { direction: "row", gap: 8, flex: 1, align: "start" },
+            children: [
+              { kind: "text", props: { text: cell.label, color: 0xff8e9297, fontSize: 13, fontWeight: 500, width: 64 } },
+              { kind: "text", props: { text: cell.value, color: 0xffd2d4d8, fontSize: 13, flex: 1, width: "fill" } },
+            ],
+          })),
         })),
-      })),
-    },
-    { before: target.row },
-  );
+      },
+      { before: target.row },
+    );
+  } catch (e) {
+    log.warn(`mount failed: ${String(e)}`);
+    remover = null;
+    return false;
+  }
   mountedGid = columnsGid;
   needMount = false;
   return true;
 }
 
-async function refresh(gid?: string): Promise<void> {
+async function refresh(gid?: string, channelId?: string | null): Promise<void> {
   if (busy) {
-    queued = true;
-    if (gid) queuedGid = gid;
+    // Last request wins: no stale queuedGid leaking into the next open.
+    queued = { gid, channelId };
     return;
   }
   busy = true;
@@ -233,80 +272,108 @@ async function refresh(gid?: string): Promise<void> {
     let target: string | null = gid ?? null;
     if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
     if (!target) target = currentGid;
-    if (!target) {
-      const channelId = channelGid();
-      if (channelId) {
-        const channel = await api(`/channels/${channelId}`);
-        target = channel?.guild_id != null ? String(channel.guild_id) : null;
-        if (target) currentGid = target;
-      }
-    }
+    if (!target) target = await guildFromChannel(channelId ?? channelGid());
     if (!target) return;
 
     grid = await infoColumns(target);
     columnsGid = target;
 
-    // A long press can arrive while the sheet is still being built, or just
-    // after the current server was fetched. Re-mount whenever the data now
-    // belongs to a different guild than the block on screen.
+    // Re-mount when the data now belongs to a different guild than the block on screen.
     if (needMount || columnsGid !== mountedGid) mountInto();
   } finally {
     busy = false;
-    if (queued) {
-      queued = false;
-      const next = queuedGid;
-      queuedGid = undefined;
-      void refresh(next);
-    }
+    const next = queued;
+    queued = null;
+    if (next) void refresh(next.gid, next.channelId);
   }
 }
 
-const channelInfo = phoenix.gateway.channelInfo;
+const channelInfo = gateway.channelInfo;
 if (channelInfo) {
   phoenix.on(channelInfo, (payload) => {
     const body = payload as { guild_id?: unknown } | null;
     const gid = body?.guild_id;
     if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
       currentGid = gid;
-      // Navigating to a channel means the open server changed; a previous
-      // long-press id no longer describes the menu that is opening.
+      // Navigating to a channel means the open server changed; a previous long-press id is stale.
       overrideGid = null;
       needMount = false;
     }
   });
 }
 
-ui.onEvent("rowLongPress", (ev) => {
-  const gid = pressedGid(ev);
-  if (!gid) return;
-  overrideGid = gid;
-  overrideAt = Date.now();
-  needMount = true;
-  void refresh(gid);
-});
+cleanups.push(
+  ui.onEvent("rowLongPress", (ev) => {
+    const gid = pressedGid(ev);
+    if (gid) {
+      overrideGid = gid;
+      overrideAt = Date.now();
+      needMount = true;
+    }
+    void refresh(gid ?? undefined, ev.channelId);
+  }),
+);
 
-ui.onEvent("press", (ev) => {
-  if (ev.accessibilityId === "guild.menu") {
-    // The header menu is always for the server the user is in. A stale
-    // long-press id must not leak into it.
-    overrideGid = null;
-    needMount = true;
-    void refresh();
-  }
-});
+cleanups.push(
+  ui.onEvent("press", (ev) => {
+    if (ev.accessibilityId === "guild.menu") {
+      // The header menu is always for the server the user is in.
+      overrideGid = null;
+      needMount = true;
+      void refresh(undefined, ev.channelId);
+    }
+  }),
+);
 
-ui.onNode({ exact: "Edit Per-server Profile" }, (node) => {
-  const live = ui.node(node.id);
-  if ((live?.sheet ?? node.sheet) == null) return;
-  const gid = overrideGid;
-  overrideGid = null;
-  needMount = true;
-  void refresh(gid ?? undefined);
-});
+for (const label of [cfg.anchor, ...FALLBACK_ANCHORS].filter(
+  (s): s is string => typeof s === "string" && s.length > 0,
+)) {
+  cleanups.push(
+    ui.onNode({ exact: label }, (node) => {
+      const live = ui.node(node.id);
+      if ((live?.sheet ?? node.sheet) == null) return;
+      const gid = overrideGid;
+      overrideGid = null;
+      needMount = true;
+      void refresh(gid ?? undefined);
+    }),
+  );
+}
+
+if (cfg.headerFallback) {
+  cleanups.push(
+    ui.addHeaderButton({
+      icon: "res://ic_mana_puzzle_piece_plus",
+      label: "Server Info",
+      onPress: (ctx) => {
+        void (async () => {
+          const gid =
+            currentGid ??
+            (await guildFromChannel(ctx.channelId)) ??
+            (overrideGid && Date.now() - overrideAt < OVERRIDE_MS ? overrideGid : null);
+          if (!gid) return ui.toast("Open a server channel first");
+          const data = await infoColumns(gid);
+          ui.openPage({
+            title: "Server Info",
+            sections: [{ type: "text", text: data.flat().map((c) => `${c.label}: ${c.value}`).join("\n") }],
+          });
+        })();
+      },
+    }),
+  );
+}
 
 void refresh();
 
 phoenix.onUnload(() => {
   removeMount();
   needMount = false;
+  for (const off of cleanups) {
+    try {
+      off();
+    } catch {
+      // Already gone.
+    }
+  }
+  cleanups.length = 0;
 });
