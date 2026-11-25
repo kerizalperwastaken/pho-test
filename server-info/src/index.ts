@@ -391,7 +391,7 @@ function mountInto(): boolean {
     props: {
       direction: "column",
       gap: 4,
-      padding: [0, 10, 12, 10],
+      padding: [0, 16, 12, 16],
       align: "stretch",
       width: "fill",
       background: palette.bg,
@@ -407,46 +407,42 @@ function mountInto(): boolean {
       props: { direction: "row", gap: 12, align: "center", width: "fill" },
       children: row.map((cell) => ({
         kind: "view",
-        props: { direction: "row", gap: 6, flex: 1, align: "center", clip: true },
+        props: { direction: "row", gap: 4, flex: 1, align: "center", clip: true },
         children: [
-          // Fixed-width icon + label slot: every value starts at the same x,
-          // so both columns line up regardless of label length.
-          {
-            kind: "view",
-            props: { direction: "row", gap: 6, width: 82, align: "center" },
-            children: [
-              cell.icon
-                ? {
-                    kind: "image" as const,
-                    props: { uri: cell.icon, width: 13, height: 13, tint: palette.label },
-                  }
-                : { kind: "view", props: { width: 13, height: 13 } },
-              {
-                kind: "text",
-                props: {
-                  text: cell.label,
-                  color: palette.label,
-                  fontSize: 12,
-                  fontWeight: 500,
-                  width: 63,
-                  maxLines: 1,
-                  lineHeight: 16,
-                  lineHeightExact: true,
+          ...(cell.icon
+            ? [
+                {
+                  kind: "image" as const,
+                  props: { uri: cell.icon, width: 11, height: 11, tint: palette.label },
                 },
-              },
-            ],
+              ]
+            : []),
+          {
+            kind: "text",
+            props: {
+              text: cell.label,
+              color: palette.label,
+              fontSize: 11,
+              fontWeight: 500,
+              width: 54,
+              maxLines: 1,
+              lineHeight: 14,
+              lineHeightExact: true,
+              textAlign: "left",
+            },
           },
           {
             kind: "text",
             props: {
               text: cell.value,
               color: palette.value,
-              fontSize: 12,
+              fontSize: 11,
               flex: 1,
               width: "fill",
               maxLines: 1,
-              lineHeight: 16,
+              lineHeight: 14,
               lineHeightExact: true,
+              textAlign: "left",
             },
           },
         ],
