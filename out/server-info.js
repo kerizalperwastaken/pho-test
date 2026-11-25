@@ -17,6 +17,7 @@
     channels: { type: "switch", title: "Show channel count", default: true },
     boost: { type: "switch", title: "Show boost level", default: true },
     created: { type: "switch", title: "Show creation date", default: true },
+    joined: { type: "switch", title: "Show join date", default: true },
     vanity: { type: "switch", title: "Show vanity URL", default: true }
   });
   var DISCORD_EPOCH = 14200704e5;
@@ -43,6 +44,7 @@
       "res://ic_mana_boost_tier3_simple"
     ],
     created: "res://ic_mana_paper_clock",
+    joined: "res://ic_mana_door_enter",
     vanity: "res://ic_mana_browser_link"
   };
   async function api(path) {
@@ -66,6 +68,24 @@
     } catch {
       return "\u2014";
     }
+  }
+  var guildJoinedCache = null;
+  async function joinedAt(gid, guild) {
+    if (typeof guild.joined_at === "string" && guild.joined_at.length >= 10) {
+      return guild.joined_at.slice(0, 10);
+    }
+    if (!guildJoinedCache) {
+      guildJoinedCache = /* @__PURE__ */ new Map();
+      const list = await api("/users/@me/guilds");
+      if (Array.isArray(list)) {
+        for (const g of list) {
+          if (g && typeof g.id === "string" && typeof g.joined_at === "string") {
+            guildJoinedCache.set(g.id, g.joined_at.slice(0, 10));
+          }
+        }
+      }
+    }
+    return guildJoinedCache.get(gid) ?? "\u2014";
   }
   var extrasCache = /* @__PURE__ */ new Map();
   async function fetchExtras(gid, ownerId) {
@@ -94,6 +114,7 @@
     const boosts = guild.premium_subscription_count;
     const boost = typeof boosts === "number" && boosts > 0 ? `${fmt(boosts)} boosts \xB7 Lv ${tier ?? 0}` : `Lv ${tier ?? 0}`;
     const boostLevel = Math.min(2, Math.max(0, Number(tier ?? 0) - 1));
+    const joined = cfg.joined ? await joinedAt(String(guild.id ?? gid), guild) : null;
     const vanity = cfg.vanity ? typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0 ? String(guild.vanity_url_code) : "Not Found" : null;
     const cell = (label, value, icon) => ({ label, value, icon });
     const grid2 = [];
@@ -105,7 +126,10 @@
       cfg.server ? cell("Server", String(guild.name ?? "Server"), ICON.server) : null,
       cfg.owner ? cell("Owner", extras.ownerName, ICON.owner) : null
     );
-    row(cfg.created ? cell("Created", created(guild.id ?? gid), ICON.created) : null);
+    row(
+      cfg.created ? cell("Created", created(guild.id ?? gid), ICON.created) : null,
+      joined ? cell("Joined", joined, ICON.joined) : null
+    );
     row(
       cfg.members ? cell("Members", fmt(guild.approximate_member_count ?? guild.member_count), ICON.members) : null,
       cfg.members ? cell("Online", fmt(guild.approximate_presence_count), ICON.online) : null

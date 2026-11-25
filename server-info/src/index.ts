@@ -31,6 +31,7 @@ const cfg = phoenix.settings.define({
   channels: { type: "switch", title: "Show channel count", default: true },
   boost: { type: "switch", title: "Show boost level", default: true },
   created: { type: "switch", title: "Show creation date", default: true },
+  joined: { type: "switch", title: "Show join date", default: true },
   vanity: { type: "switch", title: "Show vanity URL", default: true },
 });
 
@@ -65,6 +66,7 @@ const ICON = {
     "res://ic_mana_boost_tier3_simple",
   ],
   created: "res://ic_mana_paper_clock",
+  joined: "res://ic_mana_door_enter",
   vanity: "res://ic_mana_browser_link",
 };
 
@@ -92,6 +94,27 @@ function created(id: unknown): string {
   } catch {
     return "—";
   }
+}
+
+/** GET /guilds/{id} has no joined_at; the guild list in /users/@me/guilds does. */
+let guildJoinedCache: Map<string, string> | null = null;
+
+async function joinedAt(gid: string, guild: Json): Promise<string> {
+  if (typeof guild.joined_at === "string" && guild.joined_at.length >= 10) {
+    return guild.joined_at.slice(0, 10);
+  }
+  if (!guildJoinedCache) {
+    guildJoinedCache = new Map<string, string>();
+    const list = await api("/users/@me/guilds");
+    if (Array.isArray(list)) {
+      for (const g of list) {
+        if (g && typeof g.id === "string" && typeof g.joined_at === "string") {
+          guildJoinedCache.set(g.id, g.joined_at.slice(0, 10));
+        }
+      }
+    }
+  }
+  return guildJoinedCache.get(gid) ?? "—";
 }
 
 type Extras = { roles: number; channels: number; ownerName: string };
@@ -135,6 +158,7 @@ async function infoColumns(gid: string): Promise<Grid> {
       ? `${fmt(boosts)} boosts · Lv ${tier ?? 0}`
       : `Lv ${tier ?? 0}`;
   const boostLevel = Math.min(2, Math.max(0, Number(tier ?? 0) - 1));
+  const joined = cfg.joined ? await joinedAt(String(guild.id ?? gid), guild) : null;
   const vanity = cfg.vanity
     ? typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0
       ? String(guild.vanity_url_code)
@@ -152,7 +176,10 @@ async function infoColumns(gid: string): Promise<Grid> {
     cfg.server ? cell("Server", String(guild.name ?? "Server"), ICON.server) : null,
     cfg.owner ? cell("Owner", extras.ownerName, ICON.owner) : null,
   );
-  row(cfg.created ? cell("Created", created(guild.id ?? gid), ICON.created) : null);
+  row(
+    cfg.created ? cell("Created", created(guild.id ?? gid), ICON.created) : null,
+    joined ? cell("Joined", joined, ICON.joined) : null,
+  );
   row(
     cfg.members
       ? cell("Members", fmt(guild.approximate_member_count ?? guild.member_count), ICON.members)
