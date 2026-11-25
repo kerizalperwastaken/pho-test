@@ -23,6 +23,17 @@ const log = phoenix.log;
 const gateway = phoenix.gateway;
 
 const cfg = phoenix.settings.define({
+  theme: {
+    type: "select",
+    title: "Card theme",
+    description: "Auto reads the client's appearance; pick one if the colors look wrong",
+    options: [
+      { value: "auto", label: "Auto" },
+      { value: "dark", label: "Dark" },
+      { value: "light", label: "Light" },
+    ],
+    default: "auto",
+  },
   server: { type: "switch", title: "Show server name", default: true },
   owner: { type: "switch", title: "Show owner", default: true },
   id: { type: "switch", title: "Show server ID", default: true },
@@ -46,10 +57,47 @@ const OVERRIDE_MS = 15000;
 const CACHE_MS = 10 * 60 * 1000;
 const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
-// The guild sheet itself is #2b2d31 in dark theme, so the card must contrast with it.
-const CARD_BG = 0xff1e1f22; // Discord dark-theme primary background
-const CARD_BORDER = 0xff3f4147;
+type Palette = { bg: number; border: number; label: number; value: number };
+const DARK_PALETTE: Palette = {
+  bg: 0xff1e1f22,
+  border: 0xff3f4147,
+  label: 0xff8e9297,
+  value: 0xffd2d4d8,
+};
+const LIGHT_PALETTE: Palette = {
+  bg: 0xffffffff,
+  border: 0xffe3e5e8,
+  label: 0xff4e5058,
+  value: 0xff2e3338,
+};
 const CARD_RADIUS = 8;
+let palette: Palette = DARK_PALETTE;
+let themeReady = false;
+
+/** Phoenix keeps appearance settings in its local meta table; no API request. */
+async function detectLightTheme(): Promise<boolean> {
+  try {
+    const rows = await phoenix.stores.sql<{ k: string; v: string }>(
+      "SELECT k AS k, CAST(v AS TEXT) AS v FROM meta",
+    );
+    for (const row of rows) {
+      const key = String(row.k ?? "").toLowerCase();
+      if (!/theme|appearance/.test(key)) continue;
+      if (/light/.test(String(row.v ?? "").toLowerCase())) return true;
+    }
+  } catch {
+    // No cache or no such table: keep the dark default.
+  }
+  return false;
+}
+
+async function ensureTheme(): Promise<void> {
+  if (themeReady) return;
+  themeReady = true;
+  if (cfg.theme === "dark") palette = DARK_PALETTE;
+  else if (cfg.theme === "light") palette = LIGHT_PALETTE;
+  else palette = (await detectLightTheme()) ? LIGHT_PALETTE : DARK_PALETTE;
+}
 
 /** Mana icons shipped with Phoenix (res://ic_mana_*). */
 const ICON = {
@@ -334,12 +382,12 @@ function mountInto(): boolean {
           padding: [8, 12, 8, 12],
           align: "stretch",
           width: "fill",
-          background: CARD_BG,
+          background: palette.bg,
           radius: CARD_RADIUS,
           clip: true,
-          borderColor: CARD_BORDER,
+          borderColor: palette.border,
           borderWidth: 1,
-          margin: [6, 2, 6, 2],
+          margin: [16, 4, 16, 4],
         },
         children: grid.map((row) => ({
           kind: "view",
@@ -356,7 +404,7 @@ function mountInto(): boolean {
                         uri: cell.icon,
                         width: 12,
                         height: 12,
-                        tint: 0xff8e9297,
+                        tint: palette.label,
                         margin: [0, 1, 3, 0],
                       },
                     },
@@ -366,7 +414,7 @@ function mountInto(): boolean {
                 kind: "text",
                 props: {
                   text: cell.label,
-                  color: 0xff8e9297,
+                  color: palette.label,
                   fontSize: 11,
                   fontWeight: 500,
                   width: 50,
@@ -379,7 +427,7 @@ function mountInto(): boolean {
                 kind: "text",
                 props: {
                   text: cell.value,
-                  color: 0xffd2d4d8,
+                  color: palette.value,
                   fontSize: 11,
                   flex: 1,
                   width: "fill",
@@ -412,6 +460,7 @@ async function refresh(gid?: string, channelId?: string | null): Promise<void> {
   }
   busy = true;
   try {
+    await ensureTheme();
     let target: string | null = gid ?? null;
     if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
     if (!target) target = currentGid;

@@ -9,6 +9,17 @@
   var log = phoenix.log;
   var gateway = phoenix.gateway;
   var cfg = phoenix.settings.define({
+    theme: {
+      type: "select",
+      title: "Card theme",
+      description: "Auto reads the client's appearance; pick one if the colors look wrong",
+      options: [
+        { value: "auto", label: "Auto" },
+        { value: "dark", label: "Dark" },
+        { value: "light", label: "Light" }
+      ],
+      default: "auto"
+    },
     server: { type: "switch", title: "Show server name", default: true },
     owner: { type: "switch", title: "Show owner", default: true },
     id: { type: "switch", title: "Show server ID", default: true },
@@ -27,9 +38,42 @@
   var CACHE_MS = 10 * 60 * 1e3;
   var ANCHOR = "Edit Per-server Profile";
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
-  var CARD_BG = 4280164130;
-  var CARD_BORDER = 4282335559;
+  var DARK_PALETTE = {
+    bg: 4280164130,
+    border: 4282335559,
+    label: 4287533719,
+    value: 4292007128
+  };
+  var LIGHT_PALETTE = {
+    bg: 4294967295,
+    border: 4293125608,
+    label: 4283322456,
+    value: 4281217848
+  };
   var CARD_RADIUS = 8;
+  var palette = DARK_PALETTE;
+  var themeReady = false;
+  async function detectLightTheme() {
+    try {
+      const rows = await phoenix.stores.sql(
+        "SELECT k AS k, CAST(v AS TEXT) AS v FROM meta"
+      );
+      for (const row of rows) {
+        const key = String(row.k ?? "").toLowerCase();
+        if (!/theme|appearance/.test(key)) continue;
+        if (/light/.test(String(row.v ?? "").toLowerCase())) return true;
+      }
+    } catch {
+    }
+    return false;
+  }
+  async function ensureTheme() {
+    if (themeReady) return;
+    themeReady = true;
+    if (cfg.theme === "dark") palette = DARK_PALETTE;
+    else if (cfg.theme === "light") palette = LIGHT_PALETTE;
+    else palette = await detectLightTheme() ? LIGHT_PALETTE : DARK_PALETTE;
+  }
   var ICON = {
     server: "res://ic_mana_experimental_pineapple_house",
     owner: "res://ic_mana_user_status",
@@ -260,12 +304,12 @@
             padding: [8, 12, 8, 12],
             align: "stretch",
             width: "fill",
-            background: CARD_BG,
+            background: palette.bg,
             radius: CARD_RADIUS,
             clip: true,
-            borderColor: CARD_BORDER,
+            borderColor: palette.border,
             borderWidth: 1,
-            margin: [6, 2, 6, 2]
+            margin: [16, 4, 16, 4]
           },
           children: grid.map((row) => ({
             kind: "view",
@@ -281,7 +325,7 @@
                       uri: cell.icon,
                       width: 12,
                       height: 12,
-                      tint: 4287533719,
+                      tint: palette.label,
                       margin: [0, 1, 3, 0]
                     }
                   }
@@ -290,7 +334,7 @@
                   kind: "text",
                   props: {
                     text: cell.label,
-                    color: 4287533719,
+                    color: palette.label,
                     fontSize: 11,
                     fontWeight: 500,
                     width: 50,
@@ -303,7 +347,7 @@
                   kind: "text",
                   props: {
                     text: cell.value,
-                    color: 4292007128,
+                    color: palette.value,
                     fontSize: 11,
                     flex: 1,
                     width: "fill",
@@ -334,6 +378,7 @@
     }
     busy = true;
     try {
+      await ensureTheme();
       let target = gid ?? null;
       if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
       if (!target) target = currentGid;
