@@ -9,12 +9,6 @@
   var log = phoenix.log;
   var gateway = phoenix.gateway;
   var cfg = phoenix.settings.define({
-    anchor: {
-      type: "text",
-      title: "Guild menu anchor",
-      description: "Accessibility label of a row in the guild menu. The block is mounted above it. Change if nothing appears.",
-      default: "Edit Per-server Profile"
-    },
     headerFallback: {
       type: "switch",
       title: "Header fallback button",
@@ -36,6 +30,7 @@
   var SERVER_PREFIX = "navigation.server:";
   var OVERRIDE_MS = 15e3;
   var CACHE_MS = 10 * 60 * 1e3;
+  var ANCHOR = "Edit Per-server Profile";
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
   async function api(path) {
     try {
@@ -139,9 +134,7 @@
     return channel?.guild_id != null ? String(channel.guild_id) : null;
   }
   function anchorRows() {
-    const labels = [cfg.anchor, ...FALLBACK_ANCHORS].filter(
-      (s) => typeof s === "string" && s.length > 0
-    );
+    const labels = [ANCHOR, ...FALLBACK_ANCHORS];
     const result = [];
     for (const aid of labels) {
       for (const row of ui.find({ exact: aid })) {
@@ -261,9 +254,7 @@
       }
     })
   );
-  for (const label of [cfg.anchor, ...FALLBACK_ANCHORS].filter(
-    (s) => typeof s === "string" && s.length > 0
-  )) {
+  for (const label of [ANCHOR, ...FALLBACK_ANCHORS]) {
     cleanups.push(
       ui.onNode({ exact: label }, (node) => {
         const live = ui.node(node.id);

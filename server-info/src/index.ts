@@ -10,8 +10,7 @@
  *   ui.find/node/mount, ui.onEvent/onNode, discord.get, gateway.*, onUnload.
  *
  * Differences handled here:
- *  - Anchor labels are configurable (Settings -> Phoenix -> server-info), because the
- *    original English strings may differ on Phoenix versionCode 356207 / other locales.
+ *  - Anchor labels are fixed constants; the header button covers menus with different labels.
  *  - A header button + phoenix.ui.openPage fallback shows the same data even when no
  *    guild-menu anchor matches.
  *  - Current guild is also resolved from `ViewEvent.channelId` via /channels/{id},
@@ -26,12 +25,6 @@ const log = phoenix.log;
 const gateway = phoenix.gateway;
 
 const cfg = phoenix.settings.define({
-  anchor: {
-    type: "text",
-    title: "Guild menu anchor",
-    description: "Accessibility label of a row in the guild menu. The block is mounted above it. Change if nothing appears.",
-    default: "Edit Per-server Profile",
-  },
   headerFallback: {
     type: "switch",
     title: "Header fallback button",
@@ -58,6 +51,7 @@ const CHANNEL_PREFIX = "navigation.channel:";
 const SERVER_PREFIX = "navigation.server:";
 const OVERRIDE_MS = 15000;
 const CACHE_MS = 10 * 60 * 1000;
+const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
 
 async function api(path: string): Promise<Json | null> {
@@ -187,9 +181,7 @@ async function guildFromChannel(channelId?: string | null): Promise<string | nul
 
 /** Live anchor rows, dropping one whose sheet was already dismissed. */
 function anchorRows(): { row: number; parent: number }[] {
-  const labels = [cfg.anchor, ...FALLBACK_ANCHORS].filter(
-    (s): s is string => typeof s === "string" && s.length > 0,
-  );
+  const labels = [ANCHOR, ...FALLBACK_ANCHORS];
   const result: { row: number; parent: number }[] = [];
   for (const aid of labels) {
     for (const row of ui.find({ exact: aid })) {
@@ -227,7 +219,7 @@ function removeMount(): void {
 function mountInto(): boolean {
   const rows = anchorRows();
   if (rows.length === 0) return false;
-  // cfg.anchor is first: the block sits directly above that row when present.
+  // ANCHOR is first: the block sits directly above that row when present.
   const target = rows[0];
   try {
     removeMount();
@@ -325,9 +317,7 @@ cleanups.push(
   }),
 );
 
-for (const label of [cfg.anchor, ...FALLBACK_ANCHORS].filter(
-  (s): s is string => typeof s === "string" && s.length > 0,
-)) {
+for (const label of [ANCHOR, ...FALLBACK_ANCHORS]) {
   cleanups.push(
     ui.onNode({ exact: label }, (node) => {
       const live = ui.node(node.id);
