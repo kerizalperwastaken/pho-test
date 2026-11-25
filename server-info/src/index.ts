@@ -386,6 +386,54 @@ function mountInto(): boolean {
   // The anchor label lives inside the native "Edit Per-server Profile" card, so
   // mounting before it places the block at the card's top, directly above the
   // label. Give the block its own bottom margin to match the card's top padding.
+  // One cell = fixed icon slot + fixed label slot + value. Every cell in the
+  // whole block uses these exact widths, so values can never drift sideways.
+  const LABEL_W = 58;
+  const ICON_W = 12;
+  const ROW_H = 16;
+  const cellNode = (cell: Cell | undefined): Phoenix.MountNode => {
+    if (!cell) return { kind: "view", props: { width: "fill", height: ROW_H } };
+    return {
+      kind: "view",
+      props: { direction: "row", gap: 4, width: "fill", height: ROW_H, align: "center" },
+      children: [
+        {
+          kind: "view",
+          props: { width: ICON_W, height: ICON_W, align: "center", justify: "center" },
+          children: cell.icon
+            ? [{ kind: "image" as const, props: { uri: cell.icon, width: ICON_W, height: ICON_W, tint: palette.label } }]
+            : [],
+        },
+        {
+          kind: "text",
+          props: {
+            text: cell.label, color: palette.label, fontSize: 11, fontWeight: 500,
+            width: LABEL_W, maxLines: 1, lineHeight: ROW_H, lineHeightExact: true,
+          },
+        },
+        {
+          kind: "text",
+          props: {
+            text: cell.value, color: palette.value, fontSize: 11,
+            flex: 1, width: "fill", maxLines: 1, lineHeight: ROW_H, lineHeightExact: true,
+          },
+        },
+      ],
+    };
+  };
+  // Two vertical columns, each flex:1, each with one node per grid row. Both
+  // columns use the same cellNode, so row i lines up perfectly across them.
+  const leftColumn: Phoenix.MountNode = {
+    kind: "view",
+    props: { direction: "column", gap: 4, flex: 1, width: "fill" },
+    children: grid.map((row) => cellNode(row[0])),
+  };
+  const rightColumn: Phoenix.MountNode = {
+    kind: "view",
+    props: { direction: "column", gap: 4, flex: 1, width: "fill" },
+    children: grid.map((row) => cellNode(row[1])),
+  };
+
   const block: Phoenix.MountNode = {
     kind: "view",
     props: {
@@ -399,55 +447,15 @@ function mountInto(): boolean {
       clip: true,
       borderColor: palette.border,
       borderWidth: 1,
-      // Native card padding above is ~16dp: mirror it below the block.
       margin: [0, -12, 0, 16],
     },
-    children: grid.map((row) => ({
-      kind: "view",
-      props: { direction: "row", gap: 12, align: "center", width: "fill" },
-      children: row.map((cell) => ({
+    children: [
+      {
         kind: "view",
-        props: { direction: "row", gap: 4, flex: 1, align: "center", clip: true },
-        children: [
-          ...(cell.icon
-            ? [
-                {
-                  kind: "image" as const,
-                  props: { uri: cell.icon, width: 11, height: 11, tint: palette.label },
-                },
-              ]
-            : []),
-          {
-            kind: "text",
-            props: {
-              text: cell.label,
-              color: palette.label,
-              fontSize: 11,
-              fontWeight: 500,
-              width: 54,
-              maxLines: 1,
-              lineHeight: 14,
-              lineHeightExact: true,
-              textAlign: "left",
-            },
-          },
-          {
-            kind: "text",
-            props: {
-              text: cell.value,
-              color: palette.value,
-              fontSize: 11,
-              flex: 1,
-              width: "fill",
-              maxLines: 1,
-              lineHeight: 14,
-              lineHeightExact: true,
-              textAlign: "left",
-            },
-          },
-        ],
-      })),
-    })),
+        props: { direction: "row", gap: 12, width: "fill", align: "start" },
+        children: [leftColumn, rightColumn],
+      },
+    ],
   };
 
   try {
