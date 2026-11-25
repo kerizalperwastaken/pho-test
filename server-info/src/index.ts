@@ -35,7 +35,7 @@ const cfg = phoenix.settings.define({
 });
 
 type Json = Record<string, any>;
-type Cell = { label: string; value: string };
+type Cell = { label: string; value: string; icon?: string };
 type Grid = Cell[][]; // each inner array is one visual row of two side-by-side cells
 
 const DISCORD_EPOCH = 1420070400000;
@@ -45,6 +45,24 @@ const OVERRIDE_MS = 15000;
 const CACHE_MS = 10 * 60 * 1000;
 const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
+
+/** Mana icons shipped with Phoenix (res://ic_mana_*). */
+const ICON = {
+  server: "res://ic_mana_experimental_pineapple_house",
+  owner: "res://ic_mana_user_status",
+  id: "res://ic_mana_angle_brackets",
+  members: "res://ic_mana_emoji_people",
+  online: "res://ic_mana_user_circle_status",
+  roles: "res://ic_mana_shield_at",
+  channels: "res://ic_mana_grid_horizontal",
+  boost: [
+    "res://ic_mana_boost_tier1_simple",
+    "res://ic_mana_boost_tier2_simple",
+    "res://ic_mana_boost_tier3_simple",
+  ],
+  created: "res://ic_mana_paper_clock",
+  vanity: "res://ic_mana_browser_link",
+};
 
 async function api(path: string): Promise<Json | null> {
   try {
@@ -98,7 +116,7 @@ async function fetchExtras(gid: string, ownerId: string | null): Promise<Extras>
 
 async function infoColumns(gid: string): Promise<Grid> {
   const guild = await api(`/guilds/${gid}?with_counts=true`);
-  if (!guild) return [[{ label: "Server", value: "info unavailable" }]];
+  if (!guild) return [[{ label: "Server", value: "info unavailable", icon: ICON.server }]];
 
   const ownerId = guild.owner_id != null ? String(guild.owner_id) : null;
   const needExtras = cfg.owner || cfg.roles || cfg.channels;
@@ -111,21 +129,28 @@ async function infoColumns(gid: string): Promise<Grid> {
   const boost = typeof boosts === "number" && boosts > 0 ? `Lv ${tier ?? 0} (${fmt(boosts)})` : `Lv ${tier ?? 0}`;
 
   const cells: Cell[] = [];
-  if (cfg.server) cells.push({ label: "Server", value: String(guild.name ?? "Server") });
-  if (cfg.owner) cells.push({ label: "Owner", value: extras.ownerName });
-  if (cfg.id) cells.push({ label: "ID", value: String(guild.id ?? gid) });
+  if (cfg.server) cells.push({ label: "Server", value: String(guild.name ?? "Server"), icon: ICON.server });
+  if (cfg.owner) cells.push({ label: "Owner", value: extras.ownerName, icon: ICON.owner });
+  if (cfg.id) cells.push({ label: "ID", value: String(guild.id ?? gid), icon: ICON.id });
   if (cfg.members) {
-    cells.push({ label: "Members", value: fmt(guild.approximate_member_count ?? guild.member_count) });
-    cells.push({ label: "Online", value: fmt(guild.approximate_presence_count) });
+    cells.push({
+      label: "Members",
+      value: fmt(guild.approximate_member_count ?? guild.member_count),
+      icon: ICON.members,
+    });
+    cells.push({ label: "Online", value: fmt(guild.approximate_presence_count), icon: ICON.online });
   }
-  if (cfg.roles) cells.push({ label: "Roles", value: fmt(extras.roles) });
-  if (cfg.channels) cells.push({ label: "Channels", value: fmt(extras.channels) });
-  if (cfg.boost) cells.push({ label: "Boost", value: boost });
-  if (cfg.created) cells.push({ label: "Created", value: created(guild.id ?? gid) });
+  if (cfg.roles) cells.push({ label: "Roles", value: fmt(extras.roles), icon: ICON.roles });
+  if (cfg.channels) cells.push({ label: "Channels", value: fmt(extras.channels), icon: ICON.channels });
+  if (cfg.boost) {
+    const level = Math.min(2, Math.max(0, Number(tier ?? 0) - 1));
+    cells.push({ label: "Boost", value: boost, icon: ICON.boost[level] });
+  }
+  if (cfg.created) cells.push({ label: "Created", value: created(guild.id ?? gid), icon: ICON.created });
   if (cfg.vanity && typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0) {
-    cells.push({ label: "Vanity", value: String(guild.vanity_url_code) });
+    cells.push({ label: "Vanity", value: String(guild.vanity_url_code), icon: ICON.vanity });
   }
-  if (cells.length === 0) cells.push({ label: "Server", value: "no fields enabled" });
+  if (cells.length === 0) cells.push({ label: "Server", value: "no fields enabled", icon: ICON.server });
 
   const grid: Grid = [];
   for (let i = 0; i < cells.length; i += 2) grid.push(cells.slice(i, i + 2));
@@ -185,7 +210,7 @@ function anchorRows(): { row: number; parent: number }[] {
   return result;
 }
 
-let grid: Grid = [[{ label: "Server", value: "info unavailable" }]];
+let grid: Grid = [[{ label: "Server", value: "info unavailable", icon: ICON.server }]];
 let columnsGid: string | null = null;
 let currentGid: string | null = null;
 let overrideGid: string | null = null;
@@ -225,9 +250,23 @@ function mountInto(): boolean {
           props: { direction: "row", gap: 16, align: "start", width: "fill" },
           children: row.map((cell) => ({
             kind: "view",
-            props: { direction: "row", gap: 8, flex: 1, align: "start" },
+            props: { direction: "row", gap: 6, flex: 1, align: "start" },
             children: [
-              { kind: "text", props: { text: cell.label, color: 0xff8e9297, fontSize: 13, fontWeight: 500, width: 64 } },
+              ...(cell.icon
+                ? [
+                    {
+                      kind: "image" as const,
+                      props: {
+                        uri: cell.icon,
+                        width: 14,
+                        height: 14,
+                        tint: 0xff8e9297,
+                        margin: [0, 1, 4, 0],
+                      },
+                    },
+                  ]
+                : []),
+              { kind: "text", props: { text: cell.label, color: 0xff8e9297, fontSize: 13, fontWeight: 500, width: 56 } },
               { kind: "text", props: { text: cell.value, color: 0xffd2d4d8, fontSize: 13, flex: 1, width: "fill" } },
             ],
           })),

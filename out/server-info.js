@@ -26,6 +26,22 @@
   var CACHE_MS = 10 * 60 * 1e3;
   var ANCHOR = "Edit Per-server Profile";
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
+  var ICON = {
+    server: "res://ic_mana_experimental_pineapple_house",
+    owner: "res://ic_mana_user_status",
+    id: "res://ic_mana_angle_brackets",
+    members: "res://ic_mana_emoji_people",
+    online: "res://ic_mana_user_circle_status",
+    roles: "res://ic_mana_shield_at",
+    channels: "res://ic_mana_grid_horizontal",
+    boost: [
+      "res://ic_mana_boost_tier1_simple",
+      "res://ic_mana_boost_tier2_simple",
+      "res://ic_mana_boost_tier3_simple"
+    ],
+    created: "res://ic_mana_paper_clock",
+    vanity: "res://ic_mana_browser_link"
+  };
   async function api(path) {
     try {
       const res = await discord.get(path);
@@ -67,7 +83,7 @@
   }
   async function infoColumns(gid) {
     const guild = await api(`/guilds/${gid}?with_counts=true`);
-    if (!guild) return [[{ label: "Server", value: "info unavailable" }]];
+    if (!guild) return [[{ label: "Server", value: "info unavailable", icon: ICON.server }]];
     const ownerId = guild.owner_id != null ? String(guild.owner_id) : null;
     const needExtras = cfg.owner || cfg.roles || cfg.channels;
     const extras = needExtras ? await fetchExtras(gid, ownerId) : { roles: 0, channels: 0, ownerName: "\u2014" };
@@ -75,21 +91,28 @@
     const boosts = guild.premium_subscription_count;
     const boost = typeof boosts === "number" && boosts > 0 ? `Lv ${tier ?? 0} (${fmt(boosts)})` : `Lv ${tier ?? 0}`;
     const cells = [];
-    if (cfg.server) cells.push({ label: "Server", value: String(guild.name ?? "Server") });
-    if (cfg.owner) cells.push({ label: "Owner", value: extras.ownerName });
-    if (cfg.id) cells.push({ label: "ID", value: String(guild.id ?? gid) });
+    if (cfg.server) cells.push({ label: "Server", value: String(guild.name ?? "Server"), icon: ICON.server });
+    if (cfg.owner) cells.push({ label: "Owner", value: extras.ownerName, icon: ICON.owner });
+    if (cfg.id) cells.push({ label: "ID", value: String(guild.id ?? gid), icon: ICON.id });
     if (cfg.members) {
-      cells.push({ label: "Members", value: fmt(guild.approximate_member_count ?? guild.member_count) });
-      cells.push({ label: "Online", value: fmt(guild.approximate_presence_count) });
+      cells.push({
+        label: "Members",
+        value: fmt(guild.approximate_member_count ?? guild.member_count),
+        icon: ICON.members
+      });
+      cells.push({ label: "Online", value: fmt(guild.approximate_presence_count), icon: ICON.online });
     }
-    if (cfg.roles) cells.push({ label: "Roles", value: fmt(extras.roles) });
-    if (cfg.channels) cells.push({ label: "Channels", value: fmt(extras.channels) });
-    if (cfg.boost) cells.push({ label: "Boost", value: boost });
-    if (cfg.created) cells.push({ label: "Created", value: created(guild.id ?? gid) });
+    if (cfg.roles) cells.push({ label: "Roles", value: fmt(extras.roles), icon: ICON.roles });
+    if (cfg.channels) cells.push({ label: "Channels", value: fmt(extras.channels), icon: ICON.channels });
+    if (cfg.boost) {
+      const level = Math.min(2, Math.max(0, Number(tier ?? 0) - 1));
+      cells.push({ label: "Boost", value: boost, icon: ICON.boost[level] });
+    }
+    if (cfg.created) cells.push({ label: "Created", value: created(guild.id ?? gid), icon: ICON.created });
     if (cfg.vanity && typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0) {
-      cells.push({ label: "Vanity", value: String(guild.vanity_url_code) });
+      cells.push({ label: "Vanity", value: String(guild.vanity_url_code), icon: ICON.vanity });
     }
-    if (cells.length === 0) cells.push({ label: "Server", value: "no fields enabled" });
+    if (cells.length === 0) cells.push({ label: "Server", value: "no fields enabled", icon: ICON.server });
     const grid2 = [];
     for (let i = 0; i < cells.length; i += 2) grid2.push(cells.slice(i, i + 2));
     return grid2;
@@ -139,7 +162,7 @@
     }
     return result;
   }
-  var grid = [[{ label: "Server", value: "info unavailable" }]];
+  var grid = [[{ label: "Server", value: "info unavailable", icon: ICON.server }]];
   var columnsGid = null;
   var currentGid = null;
   var overrideGid = null;
@@ -175,9 +198,21 @@
             props: { direction: "row", gap: 16, align: "start", width: "fill" },
             children: row.map((cell) => ({
               kind: "view",
-              props: { direction: "row", gap: 8, flex: 1, align: "start" },
+              props: { direction: "row", gap: 6, flex: 1, align: "start" },
               children: [
-                { kind: "text", props: { text: cell.label, color: 4287533719, fontSize: 13, fontWeight: 500, width: 64 } },
+                ...cell.icon ? [
+                  {
+                    kind: "image",
+                    props: {
+                      uri: cell.icon,
+                      width: 14,
+                      height: 14,
+                      tint: 4287533719,
+                      margin: [0, 1, 4, 0]
+                    }
+                  }
+                ] : [],
+                { kind: "text", props: { text: cell.label, color: 4287533719, fontSize: 13, fontWeight: 500, width: 56 } },
                 { kind: "text", props: { text: cell.value, color: 4292007128, fontSize: 13, flex: 1, width: "fill" } }
               ]
             }))
