@@ -96,25 +96,67 @@ function created(id: unknown): string {
   }
 }
 
-/** GET /guilds/{id} has no joined_at; the guild list in /users/@me/guilds does. */
-let guildJoinedCache: Map<string, string> | null = null;
+/**
+ * Join date without an extra API request: first the guild response itself if it
+ * carries joined_at, then GUILD_CREATE events seen while the plugin is alive,
+ * and finally Phoenix's own cache.sqlite (local, read-only).
+ */
+const joinedFromGateway = new Map<string, string>();
+let joinedCache: Map<string, string> | null = null;
 
-async function joinedAt(gid: string, guild: Json): Promise<string> {
-  if (typeof guild.joined_at === "string" && guild.joined_at.length >= 10) {
-    return guild.joined_at.slice(0, 10);
+function dateValue(raw: unknown): string | null {
+  if (typeof raw === "string" && raw.length >= 10) {
+    const s = raw.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
   }
-  if (!guildJoinedCache) {
-    guildJoinedCache = new Map<string, string>();
-    const list = await api("/users/@me/guilds");
-    if (Array.isArray(list)) {
-      for (const g of list) {
-        if (g && typeof g.id === "string" && typeof g.joined_at === "string") {
-          guildJoinedCache.set(g.id, g.joined_at.slice(0, 10));
-        }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const date = new Date(raw > 1e12 ? raw : raw * 1000);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+function extractJoined(obj: Json): string | null {
+  for (const key of Object.keys(obj)) {
+    if (!/join/i.test(key)) continue;
+    const value = obj[key];
+    const direct = dateValue(value);
+    if (direct) return direct;
+    const found = JSON.stringify(value ?? null).match(/\d{4}-\d{2}-\d{2}/);
+    if (found) return found[0];
+  }
+  return null;
+}
+
+async function loadJoinedFromCache(): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  try {
+    // Phoenix zero-pads guild ids to 20 digits in cache keys.
+    const rows = await phoenix.stores.sql<{ g: string; v: string }>(
+      "SELECT k AS g, CAST(v AS TEXT) AS v FROM guilds",
+    );
+    for (const row of rows) {
+      if (!row?.v) continue;
+      try {
+        const date = extractJoined(JSON.parse(row.v) as Json);
+        if (date) result.set(row.g.replace(/^0+/, ""), date);
+      } catch {
+        // Skip a malformed cache row.
       }
     }
+  } catch (e) {
+    log.warn(`reading guild cache: ${String(e)}`);
   }
-  return guildJoinedCache.get(gid) ?? "—";
+  return result;
+}
+
+async function joinedAt(gid: string, guild: Json): Promise<string> {
+  const direct = dateValue(guild.joined_at ?? guild.joinedAt);
+  if (direct) return direct;
+  const seen = joinedFromGateway.get(gid);
+  if (seen) return seen;
+  if (!joinedCache) joinedCache = await loadJoinedFromCache();
+  return joinedCache.get(gid) ?? "—";
 }
 
 type Extras = { roles: number; channels: number; ownerName: string };
@@ -400,6 +442,14 @@ if (channelInfo) {
       overrideGid = null;
       needMount = false;
     }
+  });
+}
+
+if (gateway.guildCreate) {
+  phoenix.on(gateway.guildCreate, (guild) => {
+    const raw = (guild as Json).joined_at ?? (guild as Json).joinedAt;
+    const date = dateValue(raw);
+    if (date && typeof guild.id === "string") joinedFromGateway.set(guild.id, date);
   });
 }
 

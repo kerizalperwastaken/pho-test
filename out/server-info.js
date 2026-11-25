@@ -69,23 +69,56 @@
       return "\u2014";
     }
   }
-  var guildJoinedCache = null;
-  async function joinedAt(gid, guild) {
-    if (typeof guild.joined_at === "string" && guild.joined_at.length >= 10) {
-      return guild.joined_at.slice(0, 10);
+  var joinedFromGateway = /* @__PURE__ */ new Map();
+  var joinedCache = null;
+  function dateValue(raw) {
+    if (typeof raw === "string" && raw.length >= 10) {
+      const s = raw.slice(0, 10);
+      return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
     }
-    if (!guildJoinedCache) {
-      guildJoinedCache = /* @__PURE__ */ new Map();
-      const list = await api("/users/@me/guilds");
-      if (Array.isArray(list)) {
-        for (const g of list) {
-          if (g && typeof g.id === "string" && typeof g.joined_at === "string") {
-            guildJoinedCache.set(g.id, g.joined_at.slice(0, 10));
-          }
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      const date = new Date(raw > 1e12 ? raw : raw * 1e3);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+    }
+    return null;
+  }
+  function extractJoined(obj) {
+    for (const key of Object.keys(obj)) {
+      if (!/join/i.test(key)) continue;
+      const value = obj[key];
+      const direct = dateValue(value);
+      if (direct) return direct;
+      const found = JSON.stringify(value ?? null).match(/\d{4}-\d{2}-\d{2}/);
+      if (found) return found[0];
+    }
+    return null;
+  }
+  async function loadJoinedFromCache() {
+    const result = /* @__PURE__ */ new Map();
+    try {
+      const rows = await phoenix.stores.sql(
+        "SELECT k AS g, CAST(v AS TEXT) AS v FROM guilds"
+      );
+      for (const row of rows) {
+        if (!row?.v) continue;
+        try {
+          const date = extractJoined(JSON.parse(row.v));
+          if (date) result.set(row.g.replace(/^0+/, ""), date);
+        } catch {
         }
       }
+    } catch (e) {
+      log.warn(`reading guild cache: ${String(e)}`);
     }
-    return guildJoinedCache.get(gid) ?? "\u2014";
+    return result;
+  }
+  async function joinedAt(gid, guild) {
+    const direct = dateValue(guild.joined_at ?? guild.joinedAt);
+    if (direct) return direct;
+    const seen = joinedFromGateway.get(gid);
+    if (seen) return seen;
+    if (!joinedCache) joinedCache = await loadJoinedFromCache();
+    return joinedCache.get(gid) ?? "\u2014";
   }
   var extrasCache = /* @__PURE__ */ new Map();
   async function fetchExtras(gid, ownerId) {
@@ -326,6 +359,13 @@
         overrideGid = null;
         needMount = false;
       }
+    });
+  }
+  if (gateway.guildCreate) {
+    phoenix.on(gateway.guildCreate, (guild) => {
+      const raw = guild.joined_at ?? guild.joinedAt;
+      const date = dateValue(raw);
+      if (date && typeof guild.id === "string") joinedFromGateway.set(guild.id, date);
     });
   }
   cleanups.push(
