@@ -383,13 +383,30 @@ function mountInto(): boolean {
   if (rows.length === 0) return false;
   // ANCHOR is first: the block sits directly above that row when present.
   const target = rows[0];
-  try {
-    removeMount();
-    remover = ui.mount(
-      target.parent,
-      {
-        kind: "view",
-        props: {
+  const anchor = ui.node(target.row);
+  // A label node with several rows under it is the native card itself. Mounting
+  // inside that card skips the sheet's section gap above the card, which is what
+  // left the block floating far below the previous section.
+  const nested = (anchor?.children.length ?? 0) >= 3;
+  const parent = nested ? target.row : target.parent;
+  const before: "start" | number = nested ? "start" : target.row;
+
+  const block: Phoenix.MountNode = {
+    kind: "view",
+    props: nested
+      ? {
+          direction: "column",
+          gap: 4,
+          padding: [0, 8, 0, 8],
+          align: "stretch",
+          width: "fill",
+          background: 0x0dffffff,
+          radius: 10,
+          clip: true,
+          // Pull into the card's own top padding.
+          margin: [0, -20, 0, 10],
+        }
+      : {
           direction: "column",
           gap: 4,
           padding: [12, 10, 12, 10],
@@ -400,63 +417,63 @@ function mountInto(): boolean {
           clip: true,
           borderColor: palette.border,
           borderWidth: 1,
-          // Pull the card up into the section gap above it instead of leaving a
-          // large gap there, so it sits with the same small gap on both sides.
-          margin: [0, -24, 0, 0],
+          margin: [0, 0, 0, 0],
         },
-        children: grid.map((row) => ({
-          kind: "view",
-          props: { direction: "row", gap: 10, align: "start", width: "fill" },
-          children: row.map((cell) => ({
-            kind: "view",
-            props: { direction: "row", gap: 4, flex: 1, align: "start", clip: true },
-            children: [
-              ...(cell.icon
-                ? [
-                    {
-                      kind: "image" as const,
-                      props: {
-                        uri: cell.icon,
-                        width: 12,
-                        height: 12,
-                        tint: palette.label,
-                        margin: [0, 1, 3, 0],
-                      },
-                    },
-                  ]
-                : []),
-              {
-                kind: "text",
-                props: {
-                  text: cell.label,
-                  color: palette.label,
-                  fontSize: 11,
-                  fontWeight: 500,
-                  width: 50,
-                  maxLines: 1,
-                  lineHeight: 14,
-                  lineHeightExact: true,
+    children: grid.map((row) => ({
+      kind: "view",
+      props: { direction: "row", gap: 10, align: "start", width: "fill" },
+      children: row.map((cell) => ({
+        kind: "view",
+        props: { direction: "row", gap: 4, flex: 1, align: "start", clip: true },
+        children: [
+          ...(cell.icon
+            ? [
+                {
+                  kind: "image" as const,
+                  props: {
+                    uri: cell.icon,
+                    width: 12,
+                    height: 12,
+                    tint: palette.label,
+                    margin: [0, 1, 3, 0],
+                  },
                 },
-              },
-              {
-                kind: "text",
-                props: {
-                  text: cell.value,
-                  color: palette.value,
-                  fontSize: 11,
-                  flex: 1,
-                  width: "fill",
-                  maxLines: 1,
-                  lineHeight: 14,
-                  lineHeightExact: true,
-                },
-              },
-            ],
-          })),
-        })),
-      },
-      { before: target.row },
-    );
+              ]
+            : []),
+          {
+            kind: "text",
+            props: {
+              text: cell.label,
+              color: palette.label,
+              fontSize: 11,
+              fontWeight: 500,
+              width: 50,
+              maxLines: 1,
+              lineHeight: 14,
+              lineHeightExact: true,
+            },
+          },
+          {
+            kind: "text",
+            props: {
+              text: cell.value,
+              color: palette.value,
+              fontSize: 11,
+              flex: 1,
+              width: "fill",
+              maxLines: 1,
+              lineHeight: 14,
+              lineHeightExact: true,
+            },
+          },
+        ],
+      })),
+    })),
+  };
+
+  try {
+    removeMount();
+    remover = ui.mount(parent, block, { before });
   } catch (e) {
     log.warn(`mount failed: ${String(e)}`);
     remover = null;
