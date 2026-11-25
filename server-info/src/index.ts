@@ -45,6 +45,8 @@ const OVERRIDE_MS = 15000;
 const CACHE_MS = 10 * 60 * 1000;
 const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
+const CARD_BG = 0xff2b2d31; // Discord dark-theme secondary background
+const CARD_RADIUS = 8;
 
 /** Mana icons shipped with Phoenix (res://ic_mana_*). */
 const ICON = {
@@ -244,7 +246,16 @@ function mountInto(): boolean {
       target.parent,
       {
         kind: "view",
-        props: { direction: "column", gap: 6, padding: [12, 16, 12, 16], align: "stretch", width: "fill" },
+        props: {
+          direction: "column",
+          gap: 6,
+          padding: [12, 16, 12, 16],
+          align: "stretch",
+          width: "fill",
+          background: CARD_BG,
+          radius: CARD_RADIUS,
+          margin: [8, 4, 8, 4],
+        },
         children: grid.map((row) => ({
           kind: "view",
           props: { direction: "row", gap: 16, align: "start", width: "fill" },
