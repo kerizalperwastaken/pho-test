@@ -45,7 +45,9 @@ const OVERRIDE_MS = 15000;
 const CACHE_MS = 10 * 60 * 1000;
 const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
-const CARD_BG = 0xff2b2d31; // Discord dark-theme secondary background
+// The guild sheet itself is #2b2d31 in dark theme, so the card must contrast with it.
+const CARD_BG = 0xff1e1f22; // Discord dark-theme primary background
+const CARD_BORDER = 0xff3f4147;
 const CARD_RADIUS = 8;
 
 /** Mana icons shipped with Phoenix (res://ic_mana_*). */
@@ -254,6 +256,9 @@ function mountInto(): boolean {
           width: "fill",
           background: CARD_BG,
           radius: CARD_RADIUS,
+          clip: true,
+          borderColor: CARD_BORDER,
+          borderWidth: 1,
           margin: [8, 4, 8, 4],
         },
         children: grid.map((row) => ({

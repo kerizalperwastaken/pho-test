@@ -26,7 +26,8 @@
   var CACHE_MS = 10 * 60 * 1e3;
   var ANCHOR = "Edit Per-server Profile";
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
-  var CARD_BG = 4281019697;
+  var CARD_BG = 4280164130;
+  var CARD_BORDER = 4282335559;
   var CARD_RADIUS = 8;
   var ICON = {
     server: "res://ic_mana_experimental_pineapple_house",
@@ -202,6 +203,9 @@
             width: "fill",
             background: CARD_BG,
             radius: CARD_RADIUS,
+            clip: true,
+            borderColor: CARD_BORDER,
+            borderWidth: 1,
             margin: [8, 4, 8, 4]
           },
           children: grid.map((row) => ({
