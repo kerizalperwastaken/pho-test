@@ -94,7 +94,7 @@
     const boosts = guild.premium_subscription_count;
     const boost = typeof boosts === "number" && boosts > 0 ? `${fmt(boosts)} boosts \xB7 Lv ${tier ?? 0}` : `Lv ${tier ?? 0}`;
     const boostLevel = Math.min(2, Math.max(0, Number(tier ?? 0) - 1));
-    const vanity = cfg.vanity && typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0 ? String(guild.vanity_url_code) : null;
+    const vanity = cfg.vanity ? typeof guild.vanity_url_code === "string" && guild.vanity_url_code.length > 0 ? String(guild.vanity_url_code) : "Not Found" : null;
     const cell = (label, value, icon) => ({ label, value, icon });
     const grid2 = [];
     const row = (...parts) => {
@@ -105,7 +105,6 @@
       cfg.server ? cell("Server", String(guild.name ?? "Server"), ICON.server) : null,
       cfg.owner ? cell("Owner", extras.ownerName, ICON.owner) : null
     );
-    row(cfg.id ? cell("ID", String(guild.id ?? gid), ICON.id) : null);
     row(cfg.created ? cell("Created", created(guild.id ?? gid), ICON.created) : null);
     row(
       cfg.members ? cell("Members", fmt(guild.approximate_member_count ?? guild.member_count), ICON.members) : null,
@@ -119,6 +118,7 @@
       cfg.boost ? cell("Boost", boost, ICON.boost[boostLevel]) : null,
       vanity ? cell("Vanity", vanity, ICON.vanity) : null
     );
+    row(cfg.id ? cell("ID", String(guild.id ?? gid), ICON.id) : null);
     if (grid2.length === 0) grid2.push([cell("Server", "no fields enabled", ICON.server)]);
     return grid2;
   }
