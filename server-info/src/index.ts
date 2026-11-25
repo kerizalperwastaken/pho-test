@@ -413,10 +413,15 @@ function mountInto(): boolean {
         },
         {
           kind: "text",
-          props: {
-            text: cell.value, color: palette.value, fontSize: 11,
-            flex: 1, width: "fill", maxLines: 1, lineHeight: ROW_H, lineHeightExact: true,
-          },
+          props: cell.label === "ID"
+            ? {
+                text: cell.value, color: palette.value, fontSize: 10,
+                flex: 1, width: "fill", lineHeight: ROW_H,
+              }
+            : {
+                text: cell.value, color: palette.value, fontSize: 11,
+                flex: 1, width: "fill", maxLines: 1, lineHeight: ROW_H, lineHeightExact: true,
+              },
         },
       ],
     };
@@ -512,9 +517,11 @@ if (channelInfo) {
     const gid = body?.guild_id;
     if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
       currentGid = gid;
-      // Navigating to a channel means the open server changed; a previous long-press id is stale.
+      // Navigating to a channel means the open server changed. Drop the old
+      // block immediately so stale guild data is never shown while the new
+      // data is being fetched. A previous long-press id is stale too.
+      invalidateForNewMenu();
       overrideGid = null;
-      needMount = true;
       void refresh();
     }
   });

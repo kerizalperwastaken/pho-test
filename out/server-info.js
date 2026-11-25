@@ -333,7 +333,14 @@
           },
           {
             kind: "text",
-            props: {
+            props: cell.label === "ID" ? {
+              text: cell.value,
+              color: palette.value,
+              fontSize: 10,
+              flex: 1,
+              width: "fill",
+              lineHeight: ROW_H
+            } : {
               text: cell.value,
               color: palette.value,
               fontSize: 11,
@@ -427,8 +434,8 @@
       const gid = body?.guild_id;
       if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
         currentGid = gid;
+        invalidateForNewMenu();
         overrideGid = null;
-        needMount = true;
         void refresh();
       }
     });
