@@ -321,9 +321,9 @@
             clip: true,
             borderColor: palette.border,
             borderWidth: 1,
-            // The section gap above the card is ~24dp; mirror it below so both
-            // sides match, and pull 1dp sideways to line up with the native cards.
-            margin: [-1, 0, -1, 24]
+            // Pull the card up into the section gap above it instead of leaving a
+            // large gap there, so it sits with the same small gap on both sides.
+            margin: [0, -24, 0, 0]
           },
           children: grid.map((row) => ({
             kind: "view",
