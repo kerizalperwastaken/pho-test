@@ -250,8 +250,8 @@ function mountInto(): boolean {
         kind: "view",
         props: {
           direction: "column",
-          gap: 6,
-          padding: [12, 16, 12, 16],
+          gap: 4,
+          padding: [8, 12, 8, 12],
           align: "stretch",
           width: "fill",
           background: CARD_BG,
@@ -259,14 +259,14 @@ function mountInto(): boolean {
           clip: true,
           borderColor: CARD_BORDER,
           borderWidth: 1,
-          margin: [8, 4, 8, 4],
+          margin: [6, 2, 6, 2],
         },
         children: grid.map((row) => ({
           kind: "view",
-          props: { direction: "row", gap: 16, align: "start", width: "fill" },
+          props: { direction: "row", gap: 10, align: "start", width: "fill" },
           children: row.map((cell) => ({
             kind: "view",
-            props: { direction: "row", gap: 6, flex: 1, align: "start" },
+            props: { direction: "row", gap: 4, flex: 1, align: "start", clip: true },
             children: [
               ...(cell.icon
                 ? [
@@ -274,16 +274,40 @@ function mountInto(): boolean {
                       kind: "image" as const,
                       props: {
                         uri: cell.icon,
-                        width: 14,
-                        height: 14,
+                        width: 12,
+                        height: 12,
                         tint: 0xff8e9297,
-                        margin: [0, 1, 4, 0],
+                        margin: [0, 1, 3, 0],
                       },
                     },
                   ]
                 : []),
-              { kind: "text", props: { text: cell.label, color: 0xff8e9297, fontSize: 13, fontWeight: 500, width: 56 } },
-              { kind: "text", props: { text: cell.value, color: 0xffd2d4d8, fontSize: 13, flex: 1, width: "fill" } },
+              {
+                kind: "text",
+                props: {
+                  text: cell.label,
+                  color: 0xff8e9297,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  width: 50,
+                  maxLines: 1,
+                  lineHeight: 14,
+                  lineHeightExact: true,
+                },
+              },
+              {
+                kind: "text",
+                props: {
+                  text: cell.value,
+                  color: 0xffd2d4d8,
+                  fontSize: 11,
+                  flex: 1,
+                  width: "fill",
+                  maxLines: 1,
+                  lineHeight: 14,
+                  lineHeightExact: true,
+                },
+              },
             ],
           })),
         })),
