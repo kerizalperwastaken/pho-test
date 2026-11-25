@@ -58,19 +58,20 @@ const CACHE_MS = 10 * 60 * 1000;
 const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
 type Palette = { bg: number; border: number; label: number; value: number };
+// Colors sampled from Phoenix's own guild sheet, so the card looks native.
 const DARK_PALETTE: Palette = {
   bg: 0xff1e1f22,
-  border: 0xff3f4147,
-  label: 0xff8e9297,
-  value: 0xffd2d4d8,
+  border: 0x1f97979f, // neutral translucent border, adapts to the sheet behind it
+  label: 0xffabacb2, // muted text
+  value: 0xfffbfbfb, // primary text
 };
 const LIGHT_PALETTE: Palette = {
   bg: 0xffffffff,
-  border: 0xffe3e5e8,
+  border: 0x1f97979f,
   label: 0xff4e5058,
-  value: 0xff2e3338,
+  value: 0xff313338,
 };
-const CARD_RADIUS = 8;
+const CARD_RADIUS = 12;
 let palette: Palette = DARK_PALETTE;
 let themeReady = false;
 
@@ -82,8 +83,11 @@ async function detectLightTheme(): Promise<boolean> {
     );
     for (const row of rows) {
       const key = String(row.k ?? "").toLowerCase();
-      if (!/theme|appearance/.test(key)) continue;
-      if (/light/.test(String(row.v ?? "").toLowerCase())) return true;
+      const value = String(row.v ?? "");
+      if (/theme|appearance/.test(key) && /light/i.test(value)) return true;
+      // User settings blobs carry an explicit "theme": "dark" | "light".
+      const explicit = value.match(/"theme"\s*:\s*"?(dark|light)"?/i);
+      if (explicit) return explicit[1].toLowerCase() === "light";
     }
   } catch {
     // No cache or no such table: keep the dark default.

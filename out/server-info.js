@@ -40,17 +40,20 @@
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
   var DARK_PALETTE = {
     bg: 4280164130,
-    border: 4282335559,
-    label: 4287533719,
-    value: 4292007128
+    border: 530028447,
+    // neutral translucent border, adapts to the sheet behind it
+    label: 4289440946,
+    // muted text
+    value: 4294704123
+    // primary text
   };
   var LIGHT_PALETTE = {
     bg: 4294967295,
-    border: 4293125608,
+    border: 530028447,
     label: 4283322456,
-    value: 4281217848
+    value: 4281414456
   };
-  var CARD_RADIUS = 8;
+  var CARD_RADIUS = 12;
   var palette = DARK_PALETTE;
   var themeReady = false;
   async function detectLightTheme() {
@@ -60,8 +63,10 @@
       );
       for (const row of rows) {
         const key = String(row.k ?? "").toLowerCase();
-        if (!/theme|appearance/.test(key)) continue;
-        if (/light/.test(String(row.v ?? "").toLowerCase())) return true;
+        const value = String(row.v ?? "");
+        if (/theme|appearance/.test(key) && /light/i.test(value)) return true;
+        const explicit = value.match(/"theme"\s*:\s*"?(dark|light)"?/i);
+        if (explicit) return explicit[1].toLowerCase() === "light";
       }
     } catch {
     }
