@@ -322,46 +322,46 @@
       },
       children: grid.map((row) => ({
         kind: "view",
-        props: { direction: "row", gap: 10, align: "start", width: "fill" },
+        props: { direction: "row", gap: 12, align: "center", width: "fill" },
         children: row.map((cell) => ({
           kind: "view",
-          props: { direction: "row", gap: 4, flex: 1, align: "start", clip: true },
+          props: { direction: "row", gap: 6, flex: 1, align: "center", clip: true },
           children: [
-            ...cell.icon ? [
-              {
-                kind: "image",
-                props: {
-                  uri: cell.icon,
-                  width: 12,
-                  height: 12,
-                  tint: palette.label,
-                  margin: [0, 1, 3, 0]
-                }
-              }
-            ] : [],
+            // Fixed-width icon + label slot: every value starts at the same x,
+            // so both columns line up regardless of label length.
             {
-              kind: "text",
-              props: {
-                text: cell.label,
-                color: palette.label,
-                fontSize: 11,
-                fontWeight: 500,
-                width: 50,
-                maxLines: 1,
-                lineHeight: 14,
-                lineHeightExact: true
-              }
+              kind: "view",
+              props: { direction: "row", gap: 6, width: 82, align: "center" },
+              children: [
+                cell.icon ? {
+                  kind: "image",
+                  props: { uri: cell.icon, width: 13, height: 13, tint: palette.label }
+                } : { kind: "view", props: { width: 13, height: 13 } },
+                {
+                  kind: "text",
+                  props: {
+                    text: cell.label,
+                    color: palette.label,
+                    fontSize: 12,
+                    fontWeight: 500,
+                    width: 63,
+                    maxLines: 1,
+                    lineHeight: 16,
+                    lineHeightExact: true
+                  }
+                }
+              ]
             },
             {
               kind: "text",
               props: {
                 text: cell.value,
                 color: palette.value,
-                fontSize: 11,
+                fontSize: 12,
                 flex: 1,
                 width: "fill",
                 maxLines: 1,
-                lineHeight: 14,
+                lineHeight: 16,
                 lineHeightExact: true
               }
             }
