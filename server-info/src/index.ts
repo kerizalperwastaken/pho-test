@@ -439,7 +439,8 @@ function mountInto(): boolean {
     props: {
       direction: "column",
       gap: 4,
-      padding: [0, 16, 12, 16],
+      // Phoenix rect order is [left, top, right, bottom] — not CSS order.
+      padding: [16, 16, 16, 16],
       align: "stretch",
       width: "fill",
       background: palette.bg,
@@ -447,6 +448,7 @@ function mountInto(): boolean {
       clip: true,
       borderColor: palette.border,
       borderWidth: 1,
+      // [left, top, right, bottom]
       margin: [0, -12, 0, 16],
     },
     children: [
