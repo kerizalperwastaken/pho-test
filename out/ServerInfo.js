@@ -34,7 +34,7 @@
   var DISCORD_EPOCH = 14200704e5;
   var CHANNEL_PREFIX = "navigation.channel:";
   var SERVER_PREFIX = "navigation.server:";
-  var OVERRIDE_MS = 15e3;
+  var OVERRIDE_MS = 6e4;
   var CACHE_MS = 10 * 60 * 1e3;
   var ANCHOR = "Edit Per-server Profile";
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
@@ -262,7 +262,7 @@
     if (start == null) return null;
     const stack = [start];
     const seen = /* @__PURE__ */ new Set();
-    while (stack.length && seen.size < 40) {
+    while (stack.length && seen.size < 80) {
       const id = stack.pop();
       if (seen.has(id)) continue;
       seen.add(id);
@@ -272,6 +272,43 @@
         return node.accessibilityId.slice(SERVER_PREFIX.length);
       }
       for (const child of node.children ?? []) stack.push(child);
+    }
+    return null;
+  }
+  function pressedGidFromPayload(ev) {
+    const payload = ev.payload;
+    if (!payload) return null;
+    const index = payload.index;
+    if (typeof index !== "number") return null;
+    const roots = [];
+    for (const id of ui.find({ prefix: SERVER_PREFIX })) {
+      const node = ui.node(id);
+      if (!node) continue;
+      let parent = node.parent;
+      for (let depth = 0; depth < 6 && parent != null; depth++) {
+        const p = ui.node(parent);
+        if (!p) break;
+        if (p.children.length > index && !roots.includes(parent)) roots.push(parent);
+        parent = p.parent;
+      }
+    }
+    for (const root of roots) {
+      const list = ui.node(root);
+      const start = list?.children[index];
+      if (start == null) continue;
+      const stack = [start];
+      const seen = /* @__PURE__ */ new Set();
+      while (stack.length && seen.size < 80) {
+        const id = stack.pop();
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const node = ui.node(id);
+        if (!node) continue;
+        if (node.accessibilityId?.startsWith(SERVER_PREFIX)) {
+          return node.accessibilityId.slice(SERVER_PREFIX.length);
+        }
+        for (const child of node.children ?? []) stack.push(child);
+      }
     }
     return null;
   }
@@ -434,6 +471,7 @@
       if (!target) target = currentGid;
       if (!target) target = await guildFromChannel(channelId ?? channelGid());
       if (!target) return;
+      log.info(`refresh target=${target} gid=${gid ?? "-"} override=${overrideGid ?? "-"} channel=${channelId ?? "-"}`);
       if (mountedGid && mountedGid !== target) {
         removeMount();
         needMount = true;
@@ -472,11 +510,14 @@
   }
   cleanups.push(
     ui.onEvent("rowLongPress", (ev) => {
-      const gid = pressedGid(ev);
+      let gid = pressedGid(ev) ?? pressedGidFromPayload(ev);
       if (gid) {
+        log.info(`long press guild ${gid}`);
         invalidateForNewMenu();
         overrideGid = gid;
         overrideAt = Date.now();
+      } else {
+        log.warn(`long press: no guild row found (node=${ev.node}, payload=${JSON.stringify(ev.payload ?? null).slice(0, 200)})`);
       }
       void refresh(gid ?? void 0, ev.channelId);
     })

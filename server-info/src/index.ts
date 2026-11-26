@@ -53,7 +53,7 @@ type Grid = Cell[][]; // each inner array is one visual row of two side-by-side 
 const DISCORD_EPOCH = 1420070400000;
 const CHANNEL_PREFIX = "navigation.channel:";
 const SERVER_PREFIX = "navigation.server:";
-const OVERRIDE_MS = 15000;
+const OVERRIDE_MS = 60000;
 const CACHE_MS = 10 * 60 * 1000;
 const ANCHOR = "Edit Per-server Profile";
 const FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
@@ -335,7 +335,7 @@ function pressedGid(ev: Phoenix.ViewEvent): string | null {
   if (start == null) return null;
   const stack: number[] = [start];
   const seen = new Set<number>();
-  while (stack.length && seen.size < 40) {
+  while (stack.length && seen.size < 80) {
     const id = stack.pop()!;
     if (seen.has(id)) continue;
     seen.add(id);
@@ -345,6 +345,47 @@ function pressedGid(ev: Phoenix.ViewEvent): string | null {
       return node.accessibilityId.slice(SERVER_PREFIX.length);
     }
     for (const child of node.children ?? []) stack.push(child);
+  }
+  return null;
+}
+
+/** Last-resort long-press target: the event payload often carries a row index
+ * on a different node than the one Phoenix reports in `ev.node`. Scan the live
+ * tree for the pressed row when the direct lookup found nothing. */
+function pressedGidFromPayload(ev: Phoenix.ViewEvent): string | null {
+  const payload = ev.payload as Record<string, unknown> | null;
+  if (!payload) return null;
+  const index = payload.index;
+  if (typeof index !== "number") return null;
+  const roots: number[] = [];
+  for (const id of ui.find({ prefix: SERVER_PREFIX })) {
+    const node = ui.node(id);
+    if (!node) continue;
+    let parent = node.parent;
+    for (let depth = 0; depth < 6 && parent != null; depth++) {
+      const p = ui.node(parent);
+      if (!p) break;
+      if (p.children.length > index && !roots.includes(parent)) roots.push(parent);
+      parent = p.parent;
+    }
+  }
+  for (const root of roots) {
+    const list = ui.node(root);
+    const start = list?.children[index];
+    if (start == null) continue;
+    const stack = [start];
+    const seen = new Set<number>();
+    while (stack.length && seen.size < 80) {
+      const id = stack.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const node = ui.node(id);
+      if (!node) continue;
+      if (node.accessibilityId?.startsWith(SERVER_PREFIX)) {
+        return node.accessibilityId.slice(SERVER_PREFIX.length);
+      }
+      for (const child of node.children ?? []) stack.push(child);
+    }
   }
   return null;
 }
@@ -517,6 +558,7 @@ async function refresh(gid?: string, channelId?: string | null): Promise<void> {
     if (!target) target = currentGid;
     if (!target) target = await guildFromChannel(channelId ?? channelGid());
     if (!target) return;
+    log.info(`refresh target=${target} gid=${gid ?? "-"} override=${overrideGid ?? "-"} channel=${channelId ?? "-"}`);
 
     // The menu belongs to `target`. If the card on screen still shows another
     // guild, drop it right now; never leave stale data visible while the new
@@ -568,11 +610,14 @@ if (gateway.guildCreate) {
 
 cleanups.push(
   ui.onEvent("rowLongPress", (ev) => {
-    const gid = pressedGid(ev);
+    let gid = pressedGid(ev) ?? pressedGidFromPayload(ev);
     if (gid) {
+      log.info(`long press guild ${gid}`);
       invalidateForNewMenu();
       overrideGid = gid;
       overrideAt = Date.now();
+    } else {
+      log.warn(`long press: no guild row found (node=${ev.node}, payload=${JSON.stringify(ev.payload ?? null).slice(0, 200)})`);
     }
     void refresh(gid ?? undefined, ev.channelId);
   }),
