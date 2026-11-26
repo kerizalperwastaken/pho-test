@@ -1,4 +1,4 @@
-// @description Shows server details in the guild menu: name, ID, owner, members, roles, channels, boosts, created, vanity
+// @description ServerInfo — server details in the guild menu: name, ID, owner, members, roles, channels, boosts, created, vanity
 // @version 1.1.0
 // @author kerizalperwastaken
 // @enabled true
