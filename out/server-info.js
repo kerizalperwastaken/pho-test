@@ -14,9 +14,10 @@
       title: "Card theme",
       description: "Auto reads the client's appearance; pick one if the colors look wrong",
       options: [
-        { value: "auto", label: "Auto" },
-        { value: "dark", label: "Dark" },
-        { value: "light", label: "Light" }
+        { value: "auto", label: "Auto (Adaptive / 3rd-Party Compatible)" },
+        { value: "dark", label: "Classic Dark" },
+        { value: "midnight", label: "AMOLED / Midnight" },
+        { value: "light", label: "Classic Light" }
       ],
       default: "auto"
     },
@@ -38,24 +39,41 @@
   var CACHE_MS = 10 * 60 * 1e3;
   var ANCHOR = "Edit Per-server Profile";
   var FALLBACK_ANCHORS = ["Copy Server ID", "Copy Server Banner Image Link"];
-  var DARK_PALETTE = {
-    bg: 4282466632,
-    border: 4282466632,
-    // native cards are borderless
-    label: 4289440946,
-    // muted text
-    value: 4294967295
-    // primary text
+  // Adaptive palettes: use alpha-channel blending to automatically inherit
+  // the background color and tone of any 3rd-party theme, Nitro gradient, or AMOLED
+  var ADAPTIVE_DARK = {
+    bg: 0x14FFFFFF,       // 8% white tint: blends seamlessly with any dark/colored theme
+    border: 0x1AFFFFFF,   // 10% subtle translucent border
+    label: 4289440946,    // 0xFF949BA4 - muted text
+    value: 4294967295     // 0xFFFFFFFF - primary text
   };
-  var LIGHT_PALETTE = {
+  var ADAPTIVE_LIGHT = {
+    bg: 0x0A000000,       // 4% black tint: blends with light theme background
+    border: 0x14000000,   // 8% subtle border
+    label: 4283322456,    // 0xFF4E5058
+    value: 4281414456     // 0xFF313338
+  };
+  var MIDNIGHT_PALETTE = {
+    bg: 4279374354,       // 0xFF111214 - AMOLED Midnight card
+    border: 4280427042,   // 0xFF212328
+    label: 4288059030,
+    value: 4294967295
+  };
+  var CLASSIC_DARK = {
+    bg: 4282466632,       // 0xFF2B2D31 - Discord default gray
+    border: 4282466632,
+    label: 4289440946,
+    value: 4294967295
+  };
+  var CLASSIC_LIGHT = {
     bg: 4294967295,
     border: 4294967295,
     label: 4283322456,
     value: 4281414456
   };
   var CARD_RADIUS = 12;
-  var palette = DARK_PALETTE;
-  var themeReady = false;
+  var palette = ADAPTIVE_DARK;
+
   async function detectLightTheme() {
     try {
       const rows = await phoenix.stores.sql(
@@ -72,12 +90,20 @@
     }
     return false;
   }
+
   async function ensureTheme() {
-    if (themeReady) return;
-    themeReady = true;
-    if (cfg.theme === "dark") palette = DARK_PALETTE;
-    else if (cfg.theme === "light") palette = LIGHT_PALETTE;
-    else palette = await detectLightTheme() ? LIGHT_PALETTE : DARK_PALETTE;
+    const isLight = await detectLightTheme();
+    if (cfg.theme === "auto") {
+      palette = isLight ? ADAPTIVE_LIGHT : ADAPTIVE_DARK;
+    } else if (cfg.theme === "midnight") {
+      palette = MIDNIGHT_PALETTE;
+    } else if (cfg.theme === "light") {
+      palette = CLASSIC_LIGHT;
+    } else if (cfg.theme === "dark") {
+      palette = CLASSIC_DARK;
+    } else {
+      palette = isLight ? ADAPTIVE_LIGHT : ADAPTIVE_DARK;
+    }
   }
   var ICON = {
     server: "res://ic_mana_experimental_pineapple_house",
@@ -471,7 +497,6 @@
       if (!target) target = currentGid;
       if (!target) target = await guildFromChannel(channelId ?? channelGid());
       if (!target) return;
-      log.info(`refresh target=${target} gid=${gid ?? "-"} override=${overrideGid ?? "-"} channel=${channelId ?? "-"}`);
       if (mountedGid && mountedGid !== target) {
         removeMount();
         needMount = true;
@@ -508,27 +533,32 @@
       if (date && typeof guild.id === "string") joinedFromGateway.set(guild.id, date);
     });
   }
-  cleanups.push(
-    ui.onEvent("rowLongPress", (ev) => {
-      let gid = pressedGid(ev) ?? pressedGidFromPayload(ev);
-      if (gid) {
-        log.info(`long press guild ${gid}`);
-        invalidateForNewMenu();
-        overrideGid = gid;
-        overrideAt = Date.now();
-      } else {
-        log.warn(`long press: no guild row found (node=${ev.node}, payload=${JSON.stringify(ev.payload ?? null).slice(0, 200)})`);
-      }
-      void refresh(gid ?? void 0, ev.channelId);
-    })
-  );
+  for (const evName of ["rowLongPress", "longPress"]) {
+    cleanups.push(
+      ui.onEvent(evName, (ev) => {
+        let gid = (ev.accessibilityId?.startsWith(SERVER_PREFIX) ? ev.accessibilityId.slice(SERVER_PREFIX.length) : null)
+          ?? pressedGid(ev)
+          ?? pressedGidFromPayload(ev);
+        if (gid) {
+          invalidateForNewMenu();
+          overrideGid = gid;
+          overrideAt = Date.now();
+        } else {
+        }
+        void refresh(gid ?? void 0, ev.channelId);
+      })
+    );
+  }
   cleanups.push(
     ui.onEvent("press", (ev) => {
       if (ev.accessibilityId === "guild.menu") {
+        if (overrideGid && Date.now() - overrideAt < 10000) {
+        } else {
+          overrideGid = null;
+        }
         invalidateForNewMenu();
-        overrideGid = null;
         currentGid = null;
-        void refresh(void 0, ev.channelId);
+        void refresh(overrideGid ?? void 0, ev.channelId);
       }
     })
   );
@@ -538,9 +568,8 @@
         const live = ui.node(node.id);
         if ((live?.sheet ?? node.sheet) == null) return;
         invalidateForNewMenu();
-        const gid = overrideGid;
-        overrideGid = null;
-        void refresh(gid ?? void 0);
+        const activeOverride = overrideGid && (Date.now() - overrideAt < OVERRIDE_MS) ? overrideGid : null;
+        void refresh(activeOverride ?? void 0);
       })
     );
   }
