@@ -120,6 +120,7 @@
   }
   var joinedFromGateway = /* @__PURE__ */ new Map();
   var joinedCache = null;
+  var selfId = null;
   function dateValue(raw) {
     if (typeof raw === "string" && raw.length >= 10) {
       const s = raw.slice(0, 10);
@@ -132,13 +133,17 @@
     return null;
   }
   function extractJoined(obj) {
+    const ms = dateValue(obj.joined_at_ms ?? obj.joinedAtMs);
+    if (ms) return ms;
+    const direct = dateValue(obj.joined_at ?? obj.joinedAt);
+    if (direct) return direct;
     for (const key of Object.keys(obj)) {
       if (!/join/i.test(key)) continue;
       const value = obj[key];
-      const direct = dateValue(value);
-      if (direct) return direct;
-      const found = JSON.stringify(value ?? null).match(/\d{4}-\d{2}-\d{2}/);
-      if (found) return found[0];
+      const found = dateValue(value);
+      if (found) return found;
+      const hit = JSON.stringify(value ?? null).match(/\d{4}-\d{2}-\d{2}/);
+      if (hit) return hit[0];
     }
     return null;
   }
@@ -167,7 +172,21 @@
     const seen = joinedFromGateway.get(gid);
     if (seen) return seen;
     if (!joinedCache) joinedCache = await loadJoinedFromCache();
-    return joinedCache.get(gid) ?? "\u2014";
+    const cached = joinedCache.get(gid);
+    if (cached) return cached;
+    if (!selfId) {
+      const me = await api("/users/@me");
+      if (typeof me?.id === "string") selfId = me.id;
+    }
+    if (selfId) {
+      const member = await api(`/guilds/${gid}/members/${selfId}`);
+      const fresh = dateValue(member?.joined_at ?? member?.joinedAt);
+      if (fresh) {
+        joinedFromGateway.set(gid, fresh);
+        return fresh;
+      }
+    }
+    return "\u2014";
   }
   var extrasCache = /* @__PURE__ */ new Map();
   async function fetchExtras(gid, ownerId) {
@@ -415,6 +434,10 @@
       if (!target) target = currentGid;
       if (!target) target = await guildFromChannel(channelId ?? channelGid());
       if (!target) return;
+      if (mountedGid && mountedGid !== target) {
+        removeMount();
+        needMount = true;
+      }
       const fresh = await infoColumns(target);
       if (seq !== requestSeq) return;
       grid = fresh;

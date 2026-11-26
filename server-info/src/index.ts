@@ -155,6 +155,7 @@ function created(id: unknown): string {
  */
 const joinedFromGateway = new Map<string, string>();
 let joinedCache: Map<string, string> | null = null;
+let selfId: string | null = null;
 
 function dateValue(raw: unknown): string | null {
   if (typeof raw === "string" && raw.length >= 10) {
@@ -169,13 +170,20 @@ function dateValue(raw: unknown): string | null {
 }
 
 function extractJoined(obj: Json): string | null {
+  // Phoenix's guild cache stores the member's join time under `joined_at_ms`,
+  // while Discord's REST guild object uses `joined_at`. Check both explicitly
+  // before the generic scan so a renamed field cannot turn into "—".
+  const ms = dateValue(obj.joined_at_ms ?? obj.joinedAtMs);
+  if (ms) return ms;
+  const direct = dateValue(obj.joined_at ?? obj.joinedAt);
+  if (direct) return direct;
   for (const key of Object.keys(obj)) {
     if (!/join/i.test(key)) continue;
     const value = obj[key];
-    const direct = dateValue(value);
-    if (direct) return direct;
-    const found = JSON.stringify(value ?? null).match(/\d{4}-\d{2}-\d{2}/);
-    if (found) return found[0];
+    const found = dateValue(value);
+    if (found) return found;
+    const hit = JSON.stringify(value ?? null).match(/\d{4}-\d{2}-\d{2}/);
+    if (hit) return hit[0];
   }
   return null;
 }
@@ -208,7 +216,23 @@ async function joinedAt(gid: string, guild: Json): Promise<string> {
   const seen = joinedFromGateway.get(gid);
   if (seen) return seen;
   if (!joinedCache) joinedCache = await loadJoinedFromCache();
-  return joinedCache.get(gid) ?? "—";
+  const cached = joinedCache.get(gid);
+  if (cached) return cached;
+  // Last resort: Discord's guild object has no joined_at; ask the guild member
+  // endpoint for the current user. This is read-only and cached in the map.
+  if (!selfId) {
+    const me = await api("/users/@me");
+    if (typeof me?.id === "string") selfId = me.id;
+  }
+  if (selfId) {
+    const member = await api(`/guilds/${gid}/members/${selfId}`);
+    const fresh = dateValue(member?.joined_at ?? member?.joinedAt);
+    if (fresh) {
+      joinedFromGateway.set(gid, fresh);
+      return fresh;
+    }
+  }
+  return "—";
 }
 
 type Extras = { roles: number; channels: number; ownerName: string };
@@ -494,8 +518,15 @@ async function refresh(gid?: string, channelId?: string | null): Promise<void> {
     if (!target) target = await guildFromChannel(channelId ?? channelGid());
     if (!target) return;
 
+    // The menu belongs to `target`. If the card on screen still shows another
+    // guild, drop it right now; never leave stale data visible while the new
+    // request is in flight.
+    if (mountedGid && mountedGid !== target) {
+      removeMount();
+      needMount = true;
+    }
+
     const fresh = await infoColumns(target);
-    // A newer menu request won while this one was fetching: discard the old data.
     if (seq !== requestSeq) return;
     grid = fresh;
     columnsGid = target;

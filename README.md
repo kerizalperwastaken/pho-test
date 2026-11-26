@@ -6,7 +6,7 @@ Sunbird / Phoenix JS plugins.
 
 Shows server details in the guild menu (name, ID, owner, members, roles, channels, boosts, created, vanity).
 
-Install URL (paste.rs): https://paste.rs/IT7PA
+Install URL (paste.rs): https://paste.rs/PBFR7
 
 Source: `ServerInfo/src/index.ts` and `server-info/src/index.ts`
 Bundle: `out/ServerInfo.js` (`out/server-info.js` is the same content)
