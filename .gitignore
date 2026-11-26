@@ -1,3 +1,2 @@
 node_modules/
 .DS_Store
-# Bundles are built artifacts, but keep the ready-to-install ones in out/ for download.
