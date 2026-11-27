@@ -488,7 +488,13 @@
   for (var label of [ANCHOR, ...FALLBACK_ANCHORS]) {
     cleanups.push(ui.onNode({ exact: label }, function (node) {
       var live = ui.node(node.id);
-      if ((live?.sheet ?? node.sheet) == null) return;
+      if (!live) return;
+      // Do NOT gate on `sheet` here. On Phoenix the anchor row is created
+      // before its sheet id is assigned; the old check returned early and
+      // never retried, leaving the previous guild's card mounted until the
+      // app was backgrounded and the sheet was rebuilt. Mount whenever the
+      // anchor is live and let the pinned long-press target decide the data.
+      log.info(`anchor ${label} created (sheet=${String(live.sheet ?? node.sheet ?? "none")})`);
       invalidateForNewMenu();
       var activeOverride = (overrideGid && Date.now() - overrideAt < OVERRIDE_MS) ? overrideGid
         : (pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS) ? pinnedGid : null;

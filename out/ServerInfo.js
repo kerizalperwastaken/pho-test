@@ -493,7 +493,8 @@
     for (var label of [ANCHOR, ...FALLBACK_ANCHORS]) {
       cleanups.push(ui.onNode({ exact: label }, function(node) {
         var live = ui.node(node.id);
-        if ((live?.sheet ?? node.sheet) == null) return;
+        if (!live) return;
+        log.info(`anchor ${label} created (sheet=${String(live.sheet ?? node.sheet ?? "none")})`);
         invalidateForNewMenu();
         var activeOverride = overrideGid && Date.now() - overrideAt < OVERRIDE_MS ? overrideGid : pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS ? pinnedGid : null;
         void refresh(activeOverride ?? void 0);
