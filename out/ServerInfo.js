@@ -2,6 +2,15 @@
 // @version 1.1.0
 // @author kerizalperwastaken
 // @enabled true
+// @ui-tree
+// @discord GET /users/@me
+// @discord GET /users/*
+// @discord GET /guilds/*
+// @discord GET /guilds/*/roles
+// @discord GET /guilds/*/channels
+// @discord GET /guilds/*/members/*
+// @discord GET /channels/*
+// @stores
 (() => {
   // ServerInfo/src/index.ts
   (() => {
@@ -61,12 +70,13 @@
       }
       return false;
     }
+    var themeIsLight = false;
     async function ensureTheme() {
-      var isLight = await detectLightTheme();
+      themeIsLight = await detectLightTheme();
       if (cfg.theme === "midnight") palette = MIDNIGHT_PALETTE;
       else if (cfg.theme === "light") palette = CLASSIC_LIGHT;
       else if (cfg.theme === "dark") palette = CLASSIC_DARK;
-      else palette = isLight ? ADAPTIVE_LIGHT : ADAPTIVE_DARK;
+      else palette = themeIsLight ? ADAPTIVE_LIGHT : ADAPTIVE_DARK;
     }
     var ICON = {
       server: "res://ic_mana_experimental_pineapple_house",
@@ -81,6 +91,191 @@
       joined: "res://ic_mana_door_enter",
       vanity: "res://ic_mana_browser_link"
     };
+    var CHEVRON_ICON = "res://ic_mana_group_arrow_right";
+    var ACCENT = 0xff5865f2;
+    var overlayRemover = null;
+    var rolesList = null;
+    function removeOverlay() {
+      if (!overlayRemover) return;
+      var off = overlayRemover;
+      overlayRemover = null;
+      try {
+        off();
+      } catch {
+      }
+    }
+    function iconNode(name, size, tint) {
+      return { kind: "image", props: { uri: name, width: size, height: size, tint } };
+    }
+    function roleColorArgb(role) {
+      var c = Number(role?.color ?? 0);
+      return Number.isFinite(c) && c > 0 ? 4278190080 + c : 4284244878;
+    }
+    function sheetProps() {
+      var opaque = Math.floor(palette.bg / 16777216) === 255;
+      return {
+        dismissible: true,
+        background: opaque ? palette.bg : themeIsLight ? 4294967295 : 4280954161,
+        radiusTopLeft: 16,
+        radiusTopRight: 16,
+        scrimOpacity: 0.65,
+        handleColor: palette.label
+      };
+    }
+    function sheetHeader(title, sub, back) {
+      var kids = [];
+      if (back) {
+        kids.push({
+          kind: "text",
+          props: { text: "‹", color: palette.value, fontSize: 26, width: 22, lineHeight: 28, lineHeightExact: true },
+          onPress: back
+        });
+      }
+      var titleKids = [{ kind: "text", props: { text: title, color: palette.value, fontSize: 17, fontWeight: 600, maxLines: 1, width: "fill" } }];
+      if (sub) titleKids.push({ kind: "text", props: { text: sub, color: palette.label, fontSize: 12, maxLines: 1, width: "fill" } });
+      kids.push({ kind: "view", props: { direction: "column", gap: 2, flex: 1, width: "fill" }, children: titleKids });
+      return { kind: "view", props: { direction: "row", width: "fill", align: "center", gap: 8, padding: [16, 14, 16, 10] }, children: kids };
+    }
+    function scrollList(rows) {
+      return {
+        kind: "scroll",
+        props: { width: "fill", flex: 1 },
+        children: [{ kind: "view", props: { direction: "column", width: "fill", padding: [0, 0, 16, 0] }, children: rows }]
+      };
+    }
+    function roleIconUri(role) {
+      if (typeof role?.icon !== "string" || role.icon.length < 4) return null;
+      return `https://cdn.discordapp.com/role-icons/${role.id}/${role.icon}.png?size=64`;
+    }
+    function roleBadge(role) {
+      var uri = roleIconUri(role);
+      if (uri) return { kind: "image", props: { uri, width: 18, height: 18, radius: 9 } };
+      return { kind: "view", props: { width: 14, height: 14, radius: 7, background: roleColorArgb(role) } };
+    }
+    async function roleActions(role) {
+      var name = typeof role?.name === "string" ? role.name : "";
+      var color = Number(role?.color ?? 0);
+      var hex = Number.isFinite(color) && color > 0 ? "#" + color.toString(16).padStart(6, "0").toUpperCase() : "";
+      var pick = await ui.choose({
+        title: name || "Role",
+        options: [
+          { label: "Copy Role Name" },
+          { label: "Copy Role Color" }
+        ]
+      });
+      if (pick === 0) {
+        ui.copy(name);
+        ui.toast("Role name copied");
+      } else if (pick === 1) {
+        if (!hex) {
+          ui.toast("Role has no color");
+          return;
+        }
+        ui.copy(hex);
+        ui.toast("Role color copied: " + hex);
+      }
+    }
+    var PERMS = [
+      [0, "Create Instant Invite"], [1, "Kick Members"], [2, "Ban Members"], [3, "Administrator"],
+      [4, "Manage Channels"], [5, "Manage Server"], [6, "Add Reactions"], [7, "View Audit Log"],
+      [8, "Priority Speaker"], [9, "Stream"], [10, "View Channels"], [11, "Send Messages"],
+      [12, "Send TTS Messages"], [13, "Manage Messages"], [14, "Embed Links"], [15, "Attach Files"],
+      [16, "Read Message History"], [17, "Mention @everyone"], [18, "Use External Emojis"], [19, "View Server Insights"],
+      [20, "Connect"], [21, "Speak"], [22, "Mute Members"], [23, "Deafen Members"],
+      [24, "Move Members"], [25, "Use Voice Activity"], [26, "Change Nickname"], [27, "Manage Nicknames"],
+      [28, "Manage Roles"], [29, "Manage Webhooks"], [30, "Manage Server Expressions"], [31, "Use Application Commands"],
+      [32, "Request to Speak"], [33, "Manage Events"], [34, "Manage Threads"], [35, "Create Public Threads"],
+      [36, "Create Private Threads"], [37, "Use External Stickers"], [38, "Send Messages in Threads"], [39, "Use Embedded Activities"],
+      [40, "Moderate Members"], [41, "View Creator Monetization Analytics"], [42, "Use Soundboard"], [43, "Create Server Expressions"],
+      [44, "Create Events"], [45, "Use External Sounds"], [46, "Send Voice Messages"], [47, "Create Polls"], [48, "Use External Apps"]
+    ];
+    function showRolePermissions(role) {
+      var bits = 0n;
+      try {
+        bits = BigInt(role?.permissions ?? "0");
+      } catch {
+      }
+      var isAdmin = ((bits >> 3n) & 1n) === 1n;
+      var rows = PERMS.map(function(permission) {
+        var enabled = isAdmin || ((bits >> BigInt(permission[0])) & 1n) === 1n;
+        return {
+          kind: "view",
+          props: { direction: "row", width: "fill", align: "center", height: 40, padding: [16, 0, 16, 0] },
+          children: [
+            { kind: "text", props: { text: permission[1], color: palette.value, fontSize: 14, flex: 1, width: "fill", maxLines: 1 } },
+            { kind: "text", props: { text: enabled ? "On" : "Off", color: enabled ? 0xff23a55a : 0xff80848e, fontSize: 13, fontWeight: 600 } }
+          ]
+        };
+      });
+      rows.unshift({
+        kind: "view",
+        props: { direction: "row", width: "fill", height: 42, align: "center", padding: [16, 0, 16, 0] },
+        onPress: function() { void roleActions(role); },
+        children: [
+          { kind: "text", props: { text: "More", color: ACCENT, fontSize: 14, fontWeight: 600, flex: 1, width: "fill" } },
+          iconNode(CHEVRON_ICON, 13, ACCENT)
+        ]
+      });
+      removeOverlay();
+      try {
+        overlayRemover = ui.mount("root", {
+          kind: "sheet",
+          props: sheetProps(),
+          onDismiss: removeOverlay,
+          children: [sheetHeader(role.name ?? "Role", isAdmin ? "Administrator, all permissions on" : "Permissions", showRolesList), scrollList(rows)]
+        });
+      } catch (e) {
+        log.warn("role permissions sheet failed: " + String(e));
+        overlayRemover = null;
+      }
+    }
+    function showRolesList() {
+      if (!rolesList) return;
+      var rows = rolesList.map(function(role) {
+        return {
+          kind: "view",
+          props: { direction: "row", width: "fill", align: "center", gap: 12, height: 44, padding: [16, 0, 16, 0], accessibilityId: "serverinfo.role:" + role.id, on: ["longPress", "rowLongPress"] },
+          onPress: function() {
+            showRolePermissions(role);
+          },
+          children: [
+            roleBadge(role),
+            { kind: "text", props: { text: role.name ?? "role", color: palette.value, fontSize: 15, flex: 1, width: "fill", maxLines: 1 } },
+            iconNode(CHEVRON_ICON, 13, palette.label)
+          ]
+        };
+      });
+      removeOverlay();
+      try {
+        overlayRemover = ui.mount("root", {
+          kind: "sheet",
+          props: sheetProps(),
+          onDismiss: removeOverlay,
+          children: [sheetHeader("Roles", rolesList.length + " roles"), scrollList(rows)]
+        });
+      } catch (e) {
+        log.warn("roles overlay mount failed: " + String(e));
+        overlayRemover = null;
+      }
+    }
+    function openRoles(gid) {
+      if (!gid) {
+        ui.toast("Could not find the server");
+        return;
+      }
+      void (async function() {
+        var roles = await api(`/guilds/${gid}/roles`);
+        if (!Array.isArray(roles) || roles.length === 0) {
+          ui.toast("Could not load roles");
+          return;
+        }
+        roles.sort(function(a, b) {
+          return (b.position ?? 0) - (a.position ?? 0);
+        });
+        rolesList = roles;
+        showRolesList();
+      })();
+    }
     async function api(path) {
       try {
         var res = await discord.get(path);
@@ -231,11 +426,13 @@
       return grid2;
     }
     function channelGid() {
+      var best = null;
       for (var id of ui.find({ prefix: CHANNEL_PREFIX })) {
-        var aid = ui.node(id)?.accessibilityId;
-        if (aid) return aid.slice(CHANNEL_PREFIX.length);
+        if (best === null || id > best) best = id;
       }
-      return null;
+      if (best === null) return null;
+      var aid = ui.node(best)?.accessibilityId;
+      return aid ? aid.slice(CHANNEL_PREFIX.length) : null;
     }
     function findGidInTree(startId) {
       var stack = [startId];
@@ -257,7 +454,8 @@
       var index = ev.payload?.index;
       var list = ui.node(ev.node);
       if (typeof index !== "number" || !list) return null;
-      var start = list.children[index];
+      var first = typeof list.first === "number" ? list.first : 0;
+      var start = list.children[index - first] ?? list.children[index];
       return start == null ? null : findGidInTree(start);
     }
     function pressedGidFromPayload(ev) {
@@ -312,6 +510,7 @@
     var pinnedGid = null;
     var pinnedAt = 0;
     var mountedGid = null;
+    var lockedGid = null;
     var remover = null;
     var needMount = false;
     var busy = false;
@@ -398,6 +597,17 @@
           })), column(grid.map(function(r) {
             return r[1];
           }))]
+        }, {
+          kind: "view",
+          props: { direction: "row", gap: 6, width: "fill", height: 30, align: "center", margin: [0, 6, 0, 0] },
+          onPress: function() {
+            openRoles(mountedGid ?? columnsGid ?? currentGid);
+          },
+          children: [
+            iconNode(ICON.roles, 14, ACCENT),
+            { kind: "text", props: { text: "View Roles", color: ACCENT, fontSize: 13, fontWeight: 600, flex: 1, width: "fill", maxLines: 1 } },
+            iconNode(CHEVRON_ICON, 12, ACCENT)
+          ]
         }]
       };
       try {
@@ -421,7 +631,7 @@
       busy = true;
       try {
         await ensureTheme();
-        var target = gid ?? null;
+        var target = lockedGid ?? gid ?? null;
         if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
         if (!target && pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS) target = pinnedGid;
         if (!target) target = currentGid;
@@ -449,9 +659,10 @@
         var gid = payload?.guild_id;
         if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
           currentGid = gid;
-          if (pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS) {
-            log.info(`channelInfo ${gid} ignored (pinned ${pinnedGid})`);
-            return;
+          if (pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS && pinnedGid === gid) return;
+          if (pinnedGid !== gid) {
+            pinnedGid = null;
+            pinnedAt = 0;
           }
           invalidateForNewMenu();
           overrideGid = null;
@@ -470,39 +681,66 @@
       cleanups.push(ui.onEvent(evName, function(ev) {
         var gid = (ev.accessibilityId?.startsWith(SERVER_PREFIX) ? ev.accessibilityId.slice(SERVER_PREFIX.length) : null) ?? pressedGid(ev) ?? pressedGidFromPayload(ev);
         if (gid) {
-          log.info(`long press guild ${gid}`);
           pinnedGid = gid;
           pinnedAt = Date.now();
           invalidateForNewMenu();
           overrideGid = gid;
           overrideAt = Date.now();
-        } else {
-          log.warn(`long press: no guild found (node=${ev.node}, payload=${JSON.stringify(ev.payload ?? null).slice(0, 160)})`);
+          lockedGid = gid;
         }
         void refresh(gid ?? void 0, ev.channelId);
       }));
     }
     cleanups.push(ui.onEvent("press", function(ev) {
-      if (ev.accessibilityId === "guild.menu") {
+      var aid = typeof ev.accessibilityId === "string" ? ev.accessibilityId : "";
+      if (aid.startsWith(SERVER_PREFIX)) {
+        var pressed = aid.slice(SERVER_PREFIX.length);
+        if (/^\d{17,19}$/.test(pressed)) {
+          currentGid = pressed;
+          return;
+        }
+      }
+      if (aid === "guild.menu") {
+        lockedGid = null;
         if (!(overrideGid && Date.now() - overrideAt < 1e4)) overrideGid = null;
         invalidateForNewMenu();
-        currentGid = null;
         void refresh(overrideGid ?? void 0, ev.channelId);
       }
+    }));
+    cleanups.push(ui.onNode({ prefix: CHANNEL_PREFIX }, function() {
+      var gid = channelGid();
+      if (!gid) return;
+      if (lockedGid && gid !== lockedGid) return;
+      if (mountedGid && !needMount) {
+        if (gid !== mountedGid && gid !== columnsGid) {
+          invalidateForNewMenu();
+          void refresh();
+        }
+        return;
+      }
+      if (needMount) void refresh();
     }));
     for (var label of [ANCHOR, ...FALLBACK_ANCHORS]) {
       cleanups.push(ui.onNode({ exact: label }, function(node) {
         var live = ui.node(node.id);
         if (!live) return;
-        log.info(`anchor ${label} created (sheet=${String(live.sheet ?? node.sheet ?? "none")})`);
+        if (lockedGid) {
+          if (columnsGid !== lockedGid || needMount) void refresh(lockedGid);
+          return;
+        }
+        var activeOverride = overrideGid && Date.now() - overrideAt < 3000 ? overrideGid : pinnedGid && Date.now() - pinnedAt < 3000 ? pinnedGid : null;
+        pinnedGid = null;
+        pinnedAt = 0;
+        overrideGid = null;
+        overrideAt = 0;
         invalidateForNewMenu();
-        var activeOverride = overrideGid && Date.now() - overrideAt < OVERRIDE_MS ? overrideGid : pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS ? pinnedGid : null;
         void refresh(activeOverride ?? void 0);
       }));
     }
     void refresh();
     phoenix.onUnload(function() {
       removeMount();
+      removeOverlay();
       needMount = false;
       for (var off of cleanups) {
         try {
