@@ -328,6 +328,11 @@
   var currentGid = null;
   var overrideGid = null;
   var overrideAt = 0;
+  // A rail long-press must stay authoritative while its settings sheet is
+  // open. Gateway CHANNEL_INFO keeps reporting the active channel's guild and
+  // was wiping the override, so the card snapped back to the current server.
+  var pinnedGid = null;
+  var pinnedAt = 0;
   var mountedGid = null;
   var remover = null;
   var needMount = false;
@@ -404,6 +409,7 @@
       await ensureTheme();
       var target = gid ?? null;
       if (!target && overrideGid && Date.now() - overrideAt < OVERRIDE_MS) target = overrideGid;
+      if (!target && pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS) target = pinnedGid;
       if (!target) target = currentGid;
       if (!target) target = await guildFromChannel(channelId ?? channelGid());
       if (!target) return;
@@ -427,6 +433,12 @@
       var gid = payload?.guild_id;
       if (typeof gid === "string" && /^\d{17,19}$/.test(gid)) {
         currentGid = gid;
+        // Keep a long-pressed guild pinned while its settings sheet is open;
+        // CHANNEL_INFO still points at the active channel's guild then.
+        if (pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS) {
+          log.info(`channelInfo ${gid} ignored (pinned ${pinnedGid})`);
+          return;
+        }
         invalidateForNewMenu();
         overrideGid = null;
         void refresh();
@@ -447,9 +459,14 @@
       var gid = (ev.accessibilityId?.startsWith(SERVER_PREFIX) ? ev.accessibilityId.slice(SERVER_PREFIX.length) : null)
         ?? pressedGid(ev) ?? pressedGidFromPayload(ev);
       if (gid) {
+        log.info(`long press guild ${gid}`);
+        pinnedGid = gid;
+        pinnedAt = Date.now();
         invalidateForNewMenu();
         overrideGid = gid;
         overrideAt = Date.now();
+      } else {
+        log.warn(`long press: no guild found (node=${ev.node}, payload=${JSON.stringify(ev.payload ?? null).slice(0, 160)})`);
       }
       void refresh(gid ?? undefined, ev.channelId);
     }));
@@ -458,6 +475,10 @@
   cleanups.push(ui.onEvent("press", function (ev) {
     if (ev.accessibilityId === "guild.menu") {
       if (!(overrideGid && Date.now() - overrideAt < 10000)) overrideGid = null;
+      // Do NOT clear pinnedGid here: tapping "Server Settings" in the rail
+      // context menu emits `press guild.menu` before the settings sheet's
+      // anchor node appears. Clearing it here makes the card fall back to the
+      // active channel's guild (the original bug). The pin expires on its own.
       invalidateForNewMenu();
       currentGid = null;
       void refresh(overrideGid ?? undefined, ev.channelId);
@@ -469,7 +490,8 @@
       var live = ui.node(node.id);
       if ((live?.sheet ?? node.sheet) == null) return;
       invalidateForNewMenu();
-      var activeOverride = overrideGid && (Date.now() - overrideAt < OVERRIDE_MS) ? overrideGid : null;
+      var activeOverride = (overrideGid && Date.now() - overrideAt < OVERRIDE_MS) ? overrideGid
+        : (pinnedGid && Date.now() - pinnedAt < OVERRIDE_MS) ? pinnedGid : null;
       void refresh(activeOverride ?? undefined);
     }));
   }
