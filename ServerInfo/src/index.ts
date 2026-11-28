@@ -1,16 +1,8 @@
 // @description ServerInfo — server details in the guild menu: name, ID, owner, members, roles, channels, boosts, created, vanity
-// @version 1.1.0
+// @version 1.2.0
 // @author kerizalperwastaken
 // @enabled true
-// @ui-tree
-// @discord GET /users/@me
-// @discord GET /users/*
-// @discord GET /guilds/*
-// @discord GET /guilds/*/roles
-// @discord GET /guilds/*/channels
-// @discord GET /guilds/*/members/*
-// @discord GET /channels/*
-// @stores
+// @permissions discord gateway hooks
 (() => {
   // ServerInfo/src/index.ts
   (() => {
